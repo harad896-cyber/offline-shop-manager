@@ -399,10 +399,10 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
   final payments=await db.query('customer_payments',where:'customer_id=?',whereArgs:[id],orderBy:'created ASC, id ASC');
   final events=<Map<String,Object?>>[];
   for(final x in sales){events.add({'kind':'sale','id':x['id'],'created':x['created'],'title':x['product_name'],'qty':x['qty'],'unit':x['product_unit'],'price':x['price'],'total':x['total'],'paid':x['paid'],'note':x['note']});}
-  for(final x in payments){events.add({'kind':'payment','direction':x['type']??'دریافت','id':x['id'],'created':x['created'],'title':x['type']=='پرداخت'?'پرداخت به مشتری':'دریافت از مشتری','amount':x['amount'],'note':x['note']});}
+  for(final x in payments){events.add({'kind':'payment','direction':x['type']??'دریافت','id':x['id'],'created':x['created'],'title':x['type']=='پرداخت'?'پرداخت بدهی به مشتری':x['type']=='برگشت'?'برگشت وجه به مشتری':'دریافت از مشتری','amount':x['amount'],'note':x['note']});}
   events.sort((a,b){final d=DateTime.parse(a['created'].toString()).compareTo(DateTime.parse(b['created'].toString()));if(d!=0)return d;return (a['id'] as int).compareTo(b['id'] as int);});
   double salesTotal=0,paidAtSale=0,creditSales=0,received=0,paidToCustomer=0,running=opening;
-  for(final e in events){if(e['kind']=='sale'){final total=(e['total'] as num).toDouble(),paid=(e['paid'] as num).toDouble(),debt=total-paid;salesTotal+=total;paidAtSale+=paid;creditSales+=debt;running+=debt;e['delta']=debt;e['running']=running;}else{final amount=(e['amount'] as num).toDouble();if(e['direction']=='پرداخت'){paidToCustomer+=amount;running+=amount;e['delta']=amount;}else{received+=amount;running-=amount;e['delta']=-amount;}e['running']=running;}}
+  for(final e in events){if(e['kind']=='sale'){final total=(e['total'] as num).toDouble(),paid=(e['paid'] as num).toDouble(),debt=total-paid;salesTotal+=total;paidAtSale+=paid;creditSales+=debt;running+=debt;e['delta']=debt;e['running']=running;}else{final amount=(e['amount'] as num).toDouble();if(e['direction']=='پرداخت'){paidToCustomer+=amount;running+=amount;e['delta']=amount;}else if(e['direction']=='برگشت'){paidToCustomer+=amount;running-=amount;e['delta']=-amount;}else{received+=amount;running-=amount;e['delta']=-amount;}e['running']=running;}}
   return {'opening':opening,'sales':salesTotal,'paid':paidAtSale,'creditSales':creditSales,'received':received,'paidToCustomer':paidToCustomer,'balance':running,'events':events};
  }
  String status(double b)=>b>0.005?'مشتری بدهکار است':b< -0.005?'مغازه به مشتری بدهکار است':'حساب تسویه است';
@@ -419,11 +419,12 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
  }
 
  Future<void> payCustomer() async {
+  final current=await loadLedger();final currentBalance=(current['balance'] as num).toDouble();final direction=currentBalance< -0.005?'پرداخت':'برگشت';
   final amount=TextEditingController(),note=TextEditingController();
   final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت پول به ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ پرداختی (AFN)',number:true),field(note,'توضیحات / دلیل پرداخت')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
   final value=parseNum(amount.text)??0;
   if(ok==true&&value>0){final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();await db.transaction((t)async{
-   final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'پرداخت','note':note.text.trim(),'created':created});
+   final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':direction,'note':note.text.trim(),'created':created});
    final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});
    await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
   });widget.onChanged();if(mounted)setState((){});}
