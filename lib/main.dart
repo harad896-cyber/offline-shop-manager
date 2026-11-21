@@ -83,7 +83,7 @@ Future<double> configuredSeerGrams() async {
   final db = await ShopDb.instance.database;
   final rows = await db.query('settings', where: 'key=?', whereArgs: ['seer_grams'], limit: 1);
   final value = rows.isEmpty ? 1000 : (parseNum(rows.first['value'].toString()) ?? 1000);
-  return value > 0 ? value : 1000;
+  return value > 0 ? value.toDouble() : 1000.0;
 }
 double gramsPerUnit(String unit, double seerGrams) {
   final u = unit.trim().toLowerCase();
