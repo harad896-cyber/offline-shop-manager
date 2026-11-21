@@ -31,8 +31,8 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 9, onCreate: (db, v) async {
-      await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,updated TEXT NOT NULL)');
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 10, onCreate: (db, v) async {
+      await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
       await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
@@ -58,6 +58,7 @@ class ShopDb {
     if (oldVersion < 7) { await db.execute('ALTER TABLE customer_payments ADD COLUMN cash_id INTEGER'); }
       if (oldVersion < 8) { await db.execute("ALTER TABLE customer_payments ADD COLUMN type TEXT NOT NULL DEFAULT 'دریافت'"); }
       if (oldVersion < 9) { await db.execute('ALTER TABLE supplier_payments ADD COLUMN cash_id INTEGER'); }
+      if (oldVersion < 10) { await db.execute('ALTER TABLE products ADD COLUMN pieces_per_carton INTEGER NOT NULL DEFAULT 1'); }
     });
     return _db!;
   }
@@ -139,13 +140,14 @@ class _ProductsPageState extends State<ProductsPage> {
     final db=await ShopDb.instance.database;
     final suppliers=await db.query('suppliers',orderBy:'name');
     final seerGrams=await configuredSeerGrams();
-    final n=TextEditingController(),q=TextEditingController(text:'0'),b=TextEditingController(text:'0'),s=TextEditingController(text:'0'),paid=TextEditingController();
+    final n=TextEditingController(),q=TextEditingController(text:'0'),b=TextEditingController(text:'0'),s=TextEditingController(text:'0'),paid=TextEditingController(),pieces=TextEditingController(text:'1');
     String unit='عدد'; int? supplierId;
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh){
       final buyPrice=parseNum(b.text)??0, sellPrice=parseNum(s.text)??0, stock=parseNum(q.text)??0;
       return AlertDialog(title:const Text('افزودن کالای جدید'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         field(n,'نام کالا'),
         DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد اصلی کالا'),items:units.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:(v)=>refresh(()=>unit=v??unit)),
+        if(unit=='کارتن') field(pieces,'تعداد عدد داخل هر کارتن',number:true),
         const SizedBox(height:8),TextField(controller:q,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'موجودی اولیه',border:OutlineInputBorder())),
         Align(alignment:Alignment.centerRight,child:Text('مقدارهای آماده برای '+unit,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:12))),
         Wrap(spacing:5,runSpacing:4,children:quantityPresets(unit,seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>q.text=cleanQty(p['value'] as double)))).toList()),
@@ -164,12 +166,12 @@ class _ProductsPageState extends State<ProductsPage> {
     final stock=parseNum(q.text)??0,buyPrice=parseNum(b.text)??0,sellPrice=parseNum(s.text)??0,total=stock*buyPrice;
     final paidAmount=paid.text.trim().isEmpty?total:(parseNum(paid.text)??0);
     if(ok==true&&n.text.trim().isNotEmpty){
-      if(stock<0||buyPrice<0||sellPrice<0||paidAmount<0||paidAmount>total||(stock>0&&supplierId==null)){
+      if(stock<0||buyPrice<0||sellPrice<0||paidAmount<0||paidAmount>total||(unit=='کارتن'&&(int.tryParse(pieces.text.trim())??0)<=0)||(stock>0&&supplierId==null)){
         if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی، قیمت، فروشنده یا مبلغ پرداختی را بررسی کنید.')));return;
       }
       await db.transaction((t)async{
         final now=DateTime.now().toIso8601String();
-        final id=await t.insert('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'updated':now});
+        final id=await t.insert('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'pieces_per_carton':unit=='کارتن'?(int.tryParse(pieces.text.trim())??1):1,'updated':now});
         await t.insert('price_history',{'product_id':id,'buy':buyPrice,'sell':sellPrice,'changed':now});
         if(stock>0){
           final entryId=await t.insert('entries',{'product_id':id,'product_name':n.text.trim(),'type':'خرید','qty':stock,'price':buyPrice,'total':total,'note':'موجودی اولیه کالا','created':now,'supplier_id':supplierId,'paid':paidAmount});
@@ -183,7 +185,7 @@ class _ProductsPageState extends State<ProductsPage> {
     final db=await ShopDb.instance.database;
     final used=await db.query('entries',where:'product_id=?',whereArgs:[x['id']],limit:1);
     final oldStock=(x['stock'] as num).toDouble();
-    final n=TextEditingController(text:x['name'].toString()),q=TextEditingController(text:x['stock'].toString()),b=TextEditingController(text:x['buy'].toString()),s=TextEditingController(text:x['sell'].toString());
+    final n=TextEditingController(text:x['name'].toString()),q=TextEditingController(text:x['stock'].toString()),b=TextEditingController(text:x['buy'].toString()),s=TextEditingController(text:x['sell'].toString()),pieces=TextEditingController(text:'${x['pieces_per_carton']??1}');
     String unit=x['unit'].toString();final editUnits=[...units];if(!editUnits.contains(unit))editUnits.add(unit);
     final seerGrams=await configuredSeerGrams();
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh){
@@ -192,6 +194,7 @@ class _ProductsPageState extends State<ProductsPage> {
         field(n,'نام کالا'),
         DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد کالا'),items:editUnits.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:used.isNotEmpty?null:(v)=>refresh(()=>unit=v??unit)),
         if(used.isNotEmpty)const Text('واحد کالای دارای سابقه قابل تغییر نیست.',style:TextStyle(color:Colors.orange,fontSize:12)),
+        if(unit=='کارتن') field(pieces,'تعداد عدد داخل هر کارتن',number:true),
         field(q,'موجودی فعلی',number:true),
         Wrap(spacing:5,children:quantityPresets(unit,seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>q.text=cleanQty(p['value'] as double)))).toList()),
         field(b,'قیمت خرید هر '+unit,number:true),field(s,'قیمت فروش هر '+unit,number:true),
@@ -201,13 +204,13 @@ class _ProductsPageState extends State<ProductsPage> {
     }));
     if(ok==true&&n.text.trim().isNotEmpty){
       final parsedStock=parseNum(q.text),parsedBuy=parseNum(b.text),parsedSell=parseNum(s.text);
-      if(parsedStock==null||parsedBuy==null||parsedSell==null||parsedStock<0||parsedBuy<0||parsedSell<0){
+      if(parsedStock==null||parsedBuy==null||parsedSell==null||parsedStock<0||parsedBuy<0||parsedSell<0||(unit=='کارتن'&&(int.tryParse(pieces.text.trim())??0)<=0)){
         if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی و قیمت‌ها باید عدد معتبر و غیرمنفی باشند.')));
         return;
       }
       final stock=parsedStock,buyPrice=parsedBuy,sellPrice=parsedSell,now=DateTime.now().toIso8601String();
       await db.transaction((t)async{
-        await t.update('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'updated':now},where:'id=?',whereArgs:[x['id']]);
+        await t.update('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'pieces_per_carton':unit=='کارتن'?(int.tryParse(pieces.text.trim())??1):1,'updated':now},where:'id=?',whereArgs:[x['id']]);
         if((buyPrice-(x['buy'] as num).toDouble()).abs()>0.000001||(sellPrice-(x['sell'] as num).toDouble()).abs()>0.000001){
           await t.insert('price_history',{'product_id':x['id'],'buy':buyPrice,'sell':sellPrice,'changed':now});
         }
@@ -287,7 +290,8 @@ class _EntriesPageState extends State<EntriesPage> {
         Align(alignment:Alignment.centerRight,child:Text('مقدارهای آماده',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:12))),
         Wrap(spacing:5,runSpacing:3,children:quantityPresets(products.firstWhere((e)=>e['id']==selected)['unit'].toString(),seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>qty.text=(p['value'] as double).toStringAsFixed(3)))).toList()),
         TextField(controller:price,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'قیمت هر '+products.firstWhere((e)=>e['id']==selected)['unit'].toString()+' (افغانی)',border:const OutlineInputBorder())),
-        Builder(builder:(ctx){final product=products.firstWhere((e)=>e['id']==selected);final q=parseNum(qty.text)??0,pv=parseNum(price.text)??0,subtotal=q*pv,margin=q*(type=='فروش'?pv-((product['buy'] as num).toDouble()):((product['sell'] as num).toDouble())-pv);final stock=(product['stock'] as num).toDouble();return Container(width:double.infinity,margin:const EdgeInsets.symmetric(vertical:8),padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(12)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('جمع سند: '+money.format(subtotal)+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold)),Text((type=='فروش'?'سود تقریبی این فروش: ':'سود احتمالی پس از خرید: ')+money.format(margin)+' افغانی',style:TextStyle(color:margin>=0?Colors.green:Colors.red,fontWeight:FontWeight.w600)),if(type=='فروش')Text('موجودی فعلی: '+money.format(stock)+' '+product['unit'].toString(),style:TextStyle(fontSize:11,color:q>stock?Colors.red:Colors.blueGrey))]));}),
+        if(products.firstWhere((e)=>e['id']==selected)['unit']=='کارتن') Builder(builder:(ctx){final p=products.firstWhere((e)=>e['id']==selected);final count=(p['pieces_per_carton'] as num?)?.toInt()??1;final cartonPrice=parseNum(price.text)??0;final buy=(p['buy'] as num).toDouble();return Container(width:double.infinity,padding:const EdgeInsets.all(9),margin:const EdgeInsets.only(top:5),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('هر کارتن: $count عدد'),Text('قیمت هر عدد برای مشتری: '+money.format(cartonPrice/count)+' افغانی'),Text('قیمت تمام‌شده هر عدد برای شما: '+money.format(buy/count)+' افغانی'),Text('سود هر عدد: '+money.format((cartonPrice-buy)/count)+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold))]));}),
+        Builder(builder:(ctx){final product=products.firstWhere((e)=>e['id']==selected);final q=parseNum(qty.text)??0,pv=parseNum(price.text)??0,subtotal=q*pv,margin=q*(type=='فروش'?pv-((product['buy'] as num).toDouble()):((product['sell'] as num).toDouble())-pv);final stock=(product['stock'] as num).toDouble();return Container(width:double.infinity,margin:const EdgeInsets.symmetric(vertical:8),padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(12)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('جمع سند: '+money.format(subtotal)+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold)),Text((type=='فروش'?'سود تقریبی این فروش: ':'سود احتمالی پس از خرید: ')+money.format(margin)+' افغانی',style:TextStyle(color:margin>=0?Colors.green:Colors.red,fontWeight:FontWeight.w600)),if(type=='فروش')Text('موجودی فعلی: '+money.format(stock)+' '+product['unit'].toString(),style:TextStyle(fontSize:11,color:q>stock?Colors.red:Colors.blueGrey)),if(product['unit']=='کارتن')Text('تعداد عدد در فروش: '+money.format(q*(product['pieces_per_carton'] as num? ?? 1))+' عدد',style:const TextStyle(fontSize:11))]));}),
         field(paid,type=='فروش'?'مبلغ نقدی همان لحظه (۰ = تمام مبلغ نسیه؛ خالی = نقدی کامل)':'مبلغ نقدی پرداخت‌شده به فروشنده (خالی = تمام مبلغ)',number:true),
         field(note,'یادداشت')
       ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت'))]);
