@@ -179,7 +179,35 @@ class _CashPageState extends State<CashPage> {
   Future<void> deleteCash(Map<String,Object?> x) async {final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف تراکنش'),content:const Text('این تراکنش حذف شود؟'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));if(ok==true){await (await ShopDb.instance.database).delete('cash',where:'id=?',whereArgs:[x['id']]);widget.onChanged();setState((){});}}
 
   Future<void> add() async {String type='برداشت';final amount=TextEditingController(),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(title:const Text('ثبت تراکنش صندوق'),content:Column(mainAxisSize:MainAxisSize.min,children:[DropdownButtonFormField<String>(value:type,items:const [DropdownMenuItem(value:'برداشت',child:Text('برداشت شخصی / هزینه')),DropdownMenuItem(value:'دریافت',child:Text('دریافت پول'))],onChanged:(v)=>refresh(()=>type=v!),decoration:const InputDecoration(labelText:'نوع تراکنش')),field(amount,'مبلغ افغانی',number:true),field(note,'توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت'))])));if(ok==true&&(parseNum(amount.text)??0)>0){await (await ShopDb.instance.database).insert('cash',{'type':type,'amount':parseNum(amount.text),'note':note.text,'created':DateTime.now().toIso8601String()});widget.onChanged();setState((){});}}
-  @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:add,icon:const Icon(Icons.add),label:const Text('ثبت صندوق')),body:FutureBuilder<List<Map<String,Object?>>>(future:ShopDb.instance.rows('cash',order:'id DESC'),builder:(c,s){if(!s.hasData)return const Center(child:CircularProgressIndicator());if(s.data!.isEmpty)return const Center(child:Text('تراکنش صندوقی ثبت نشده است'));return ListView(children:s.data!.map((x)=>ListTile(leading:Icon(x['type']=='دریافت'?Icons.add_circle:Icons.remove_circle,color:x['type']=='دریافت'?Colors.green:Colors.red),title:Text('${x['type']}'),subtitle:Text('${x['note']??''}'),trailing:(('${x['note']??''}').startsWith('دریافت از مشتری')||('${x['note']??''}').startsWith('پرداخت به فروشنده')||('${x['note']??''}').contains('سند #')||('${x['note']??''}').startsWith('ثبت خودکار از سند'))?Text('${money.format(x['amount'])} افغانی'):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCash(x);else deleteCash(x);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش')),PopupMenuItem(value:'delete',child:Text('حذف'))],child:Text('${money.format(x['amount'])} افغانی')))).toList());}));
+  Future<Map<String,double>> summary() async {
+    final db=await ShopDb.instance.database;
+    final r=await db.rawQuery("SELECT COALESCE(SUM(CASE WHEN type='دریافت' THEN amount ELSE 0 END),0) AS incoming, COALESCE(SUM(CASE WHEN type='برداشت' THEN amount ELSE 0 END),0) AS outgoing FROM cash");
+    final row=r.first;
+    final incoming=((row['incoming'] as num?)??0).toDouble();
+    final outgoing=((row['outgoing'] as num?)??0).toDouble();
+    return {'incoming':incoming,'outgoing':outgoing,'balance':incoming-outgoing};
+  }
+  @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:add,icon:const Icon(Icons.add),label:const Text('ثبت صندوق')),body:FutureBuilder<List<Map<String,Object?>>>(future:ShopDb.instance.rows('cash',order:'id DESC'),builder:(c,s){
+    if(!s.hasData)return const Center(child:CircularProgressIndicator());
+    final rows=s.data!;
+    return Column(children:[
+      FutureBuilder<Map<String,double>>(future:summary(),builder:(ctx,b){
+        if(!b.hasData)return const SizedBox(height:4);
+        final v=b.data!;
+        return Padding(padding:const EdgeInsets.fromLTRB(8,8,8,4),child:Row(children:[
+          Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('دریافتی',style:TextStyle(fontSize:11)),Text('${money.format(v['incoming'])} AFN',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold))])))),
+          Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('برداشتی',style:TextStyle(fontSize:11)),Text('${money.format(v['outgoing'])} AFN',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold))])))),
+          Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مانده صندوق',style:TextStyle(fontSize:11)),Text('${money.format(v['balance'])} AFN',style:const TextStyle(fontWeight:FontWeight.bold))]))))
+        ]));
+      }),
+      Expanded(child:rows.isEmpty?const Center(child:Text('تراکنش صندوقی ثبت نشده است')):ListView.builder(itemCount:rows.length,itemBuilder:(ctx,i){
+        final x=rows[i];final note='${x['note']??''}';
+        final linked=note.startsWith('دریافت از مشتری')||note.startsWith('پرداخت به فروشنده')||note.contains('سند #')||note.startsWith('ثبت خودکار از سند');
+        return ListTile(leading:Icon(x['type']=='دریافت'?Icons.add_circle:Icons.remove_circle,color:x['type']=='دریافت'?Colors.green:Colors.red),title:Text('${x['type']}'),subtitle:Text(note),trailing:linked?Text('${money.format(x['amount'])} افغانی'):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCash(x);else deleteCash(x);},itemBuilder:(ctx)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش')),PopupMenuItem(value:'delete',child:Text('حذف'))],child:Text('${money.format(x['amount'])} افغانی')));
+      }))
+    ]);
+  }));
+
 }
 
 class CustomersPage extends StatefulWidget {const CustomersPage({super.key});@override State<CustomersPage> createState()=>_CustomersPageState();}
