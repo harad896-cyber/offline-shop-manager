@@ -12,4 +12,9 @@ void main() {
     expect(afghanDate(DateTime(2026, 11, 21), withTime: false), '30 عقرب 1405');
     expect(afghanDate(DateTime(2025, 3, 20), withTime: false), '30 حوت 1403');
   });
+  test('carton prices are correctly converted to per-piece prices', () {
+    expect(cartonPiecePrice(120, 12), 10);
+    expect(cartonPiecePrice(150, 10), 15);
+    expect(cartonPiecePrice(100, 0), 0);
+  });
 }
