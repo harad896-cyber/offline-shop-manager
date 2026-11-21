@@ -81,7 +81,8 @@ Widget field(TextEditingController c,String label,{bool number=false})=>Padding(
 Future<double> configuredSeerGrams() async {
   final db = await ShopDb.instance.database;
   final rows = await db.query('settings', where: 'key=?', whereArgs: ['seer_grams'], limit: 1);
-  return rows.isEmpty ? 1000 : (parseNum(rows.first['value'].toString()) ?? 1000);
+  final value = rows.isEmpty ? 1000 : (parseNum(rows.first['value'].toString()) ?? 1000);
+  return value > 0 ? value : 1000;
 }
 double gramsPerUnit(String unit, double seerGrams) {
   final u = unit.trim().toLowerCase();
@@ -108,7 +109,7 @@ List<Map<String,Object>> quantityPresets(String unit, double seerGrams) {
 
 class ProductsPage extends StatefulWidget {final VoidCallback onChanged;const ProductsPage({super.key,required this.onChanged});@override State<ProductsPage> createState()=>_ProductsPageState();}
 class _ProductsPageState extends State<ProductsPage> {
-  final units = const ['کیلوگرم','سیر','گرم','عدد','بسته','کارتن'];
+  final units = const ['کیلوگرم','کیلو','سیر','گرم','عدد','بسته','کارتن'];
   String cleanQty(double v)=>v.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'),'');
   Future<void> add() async {
     final db=await ShopDb.instance.database;
@@ -157,13 +158,13 @@ class _ProductsPageState extends State<ProductsPage> {
   Future<void> editProduct(Map<String,Object?> x) async {
     final db=await ShopDb.instance.database;final used=await db.query('entries',where:'product_id=?',whereArgs:[x['id']],limit:1);
     final n=TextEditingController(text:x['name'].toString()),q=TextEditingController(text:x['stock'].toString()),b=TextEditingController(text:x['buy'].toString()),s=TextEditingController(text:x['sell'].toString());
-    String unit=x['unit'].toString();if(!units.contains(unit))unit='عدد';
+    String unit=x['unit'].toString();final editUnits=[...units];if(!editUnits.contains(unit))editUnits.add(unit);
     final seerGrams=await configuredSeerGrams();
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh){
       final buyPrice=parseNum(b.text)??0,sellPrice=parseNum(s.text)??0,stock=parseNum(q.text)??0;
       return AlertDialog(title:const Text('ویرایش کالا'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         field(n,'نام کالا'),
-        DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد کالا'),items:units.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:used.isNotEmpty?null:(v)=>refresh(()=>unit=v??unit)),
+        DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد کالا'),items:editUnits.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:used.isNotEmpty?null:(v)=>refresh(()=>unit=v??unit)),
         if(used.isNotEmpty)const Text('به دلیل وجود سابقه خرید و فروش، واحد اصلی این کالا قابل تغییر نیست.',style:TextStyle(color:Colors.orange,fontSize:12)),
         field(q,'موجودی فعلی',number:true),
         Wrap(spacing:5,children:quantityPresets(unit,seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>q.text=cleanQty(p['value'] as double)))).toList()),
@@ -388,5 +389,5 @@ class SettingsPage extends StatefulWidget {const SettingsPage({super.key});@over
 class _SettingsPageState extends State<SettingsPage> {
   final seer=TextEditingController();
   @override void initState(){super.initState();ShopDb.instance.database.then((db)=>db.query('settings',where:'key=?',whereArgs:['seer_grams']).then((r){if(r.isNotEmpty&&mounted)seer.text='${r.first['value']}';}));}
-  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[const Text('تنظیمات مغازه',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:12),Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('واحدها',style:TextStyle(fontWeight:FontWeight.bold)),const SizedBox(height:8),TextField(controller:seer,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'هر سیر چند گرم است؟',suffixText:'گرم')),const SizedBox(height:8),FilledButton(onPressed:()async{await (await ShopDb.instance.database).update('settings',{'value':seer.text},where:'key=?',whereArgs:['seer_grams']);if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('تنظیم ذخیره شد')));},child:const Text('ذخیره تنظیمات'))]))),const Card(child:ListTile(leading:Icon(Icons.wifi_off),title:Text('حالت آفلاین'),subtitle:Text('ثبت کالا، خرید، فروش و صندوق بدون اینترنت ذخیره می‌شود.'))),const Card(child:ListTile(leading:Icon(Icons.currency_exchange),title:Text('واحد پول'),subtitle:Text('افغانی (AFN)'))),const Card(child:ListTile(leading:Icon(Icons.sync),title:Text('همگام‌سازی گوشی و کامپیوتر'),subtitle:Text('هنوز پیاده‌سازی نشده؛ داده‌ها فعلاً فقط روی همین دستگاه هستند.'))),const Card(child:ListTile(leading:Icon(Icons.backup_outlined),title:Text('پشتیبان‌گیری و بازیابی'),subtitle:Text('هنوز پیاده‌سازی نشده؛ قبل از استفاده روزمره باید اضافه شود.')))]);
+  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[const Text('تنظیمات مغازه',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:12),Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('واحدها',style:TextStyle(fontWeight:FontWeight.bold)),const SizedBox(height:8),TextField(controller:seer,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'هر سیر چند گرم است؟',suffixText:'گرم')),const SizedBox(height:8),FilledButton(onPressed:()async{final grams=parseNum(seer.text)??0;if(grams<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار هر سیر باید بیشتر از صفر باشد.')));return;}await (await ShopDb.instance.database).update('settings',{'value':grams.toString()},where:'key=?',whereArgs:['seer_grams']);if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('تنظیم ذخیره شد')));},child:const Text('ذخیره تنظیمات'))]))),const Card(child:ListTile(leading:Icon(Icons.wifi_off),title:Text('حالت آفلاین'),subtitle:Text('ثبت کالا، خرید، فروش و صندوق بدون اینترنت ذخیره می‌شود.'))),const Card(child:ListTile(leading:Icon(Icons.currency_exchange),title:Text('واحد پول'),subtitle:Text('افغانی (AFN)'))),const Card(child:ListTile(leading:Icon(Icons.sync),title:Text('همگام‌سازی گوشی و کامپیوتر'),subtitle:Text('هنوز پیاده‌سازی نشده؛ داده‌ها فعلاً فقط روی همین دستگاه هستند.'))),const Card(child:ListTile(leading:Icon(Icons.backup_outlined),title:Text('پشتیبان‌گیری و بازیابی'),subtitle:Text('هنوز پیاده‌سازی نشده؛ قبل از استفاده روزمره باید اضافه شود.')))]);
 }
