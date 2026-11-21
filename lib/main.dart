@@ -221,6 +221,7 @@ class _EntriesPageState extends State<EntriesPage> {
     final db=await ShopDb.instance.database;
     return db.rawQuery("SELECT entries.*, customers.name AS customer_name, suppliers.name AS supplier_name, products.unit AS product_unit FROM entries LEFT JOIN customers ON customers.id=entries.customer_id LEFT JOIN suppliers ON suppliers.id=entries.supplier_id LEFT JOIN products ON products.id=entries.product_id ORDER BY entries.id DESC");
   }
+  Future<double> currentCustomerBalance(int id) async {final db=await ShopDb.instance.database;final r=await db.rawQuery("SELECT COALESCE((SELECT opening_balance FROM customers WHERE id=?),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE customer_id=? AND type='فروش'),0)-COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id=?),0) AS b",[id,id,id]);return ((r.first['b'] as num?)??0).toDouble();}
   Future<void> add() async {
     final db=await ShopDb.instance.database;
     final products=await db.query('products',orderBy:'name');
@@ -245,6 +246,7 @@ class _EntriesPageState extends State<EntriesPage> {
           const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی مشتری (اختیاری)',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh((){})),
           if(customerSearch.text.isNotEmpty) ...filtered.take(5).map((x)=>ListTile(dense:true,selected:selectedCustomer==x['id'],leading:const Icon(Icons.person_outline),title:Text('${x['name']}'),subtitle:Text('${x['phone']??''}'),onTap:()=>refresh((){selectedCustomer=x['id'] as int;if(paid.text.trim().isEmpty)paid.text='0';}))),
           if(selectedCustomer!=null) Align(alignment:Alignment.centerRight,child:TextButton(onPressed:()=>refresh((){selectedCustomer=null;if(paid.text.trim()=='0')paid.clear();}),child:Text('مشتری: ${customers.firstWhere((x)=>x['id']==selectedCustomer)['name']} • حذف انتخاب'))),
+          if(selectedCustomer!=null) FutureBuilder<double>(future:currentCustomerBalance(selectedCustomer!),builder:(ctx,bal){if(!bal.hasData)return const SizedBox.shrink();final value=bal.data!;return Container(width:double.infinity,margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(9),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(10)),child:Text('مانده فعلی: ${money.format(value.abs())} افغانی • ${value>0?'بدهکار':value<0?'طلبکار':'تسویه'}\nمبلغ پرداخت‌نشده این فروش به حساب مشتری اضافه می‌شود.',style:TextStyle(fontSize:11,color:value>0?Colors.red:value<0?Colors.green:Colors.blueGrey)));}),
           if(customers.isEmpty) const Text('هنوز مشتری ثبت نشده است؛ می‌توانید فروش را بدون انتخاب مشتری ثبت کنید.'),
         ],
         field(qty,'مقدار کالا',number:true),
