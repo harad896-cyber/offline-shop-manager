@@ -180,7 +180,9 @@ class _ProductsPageState extends State<ProductsPage> {
     }
   }
   Future<void> editProduct(Map<String,Object?> x) async {
-    final db=await ShopDb.instance.database;final used=await db.query('entries',where:'product_id=?',whereArgs:[x['id']],limit:1);
+    final db=await ShopDb.instance.database;
+    final used=await db.query('entries',where:'product_id=?',whereArgs:[x['id']],limit:1);
+    final oldStock=(x['stock'] as num).toDouble();
     final n=TextEditingController(text:x['name'].toString()),q=TextEditingController(text:x['stock'].toString()),b=TextEditingController(text:x['buy'].toString()),s=TextEditingController(text:x['sell'].toString());
     String unit=x['unit'].toString();final editUnits=[...units];if(!editUnits.contains(unit))editUnits.add(unit);
     final seerGrams=await configuredSeerGrams();
@@ -189,18 +191,31 @@ class _ProductsPageState extends State<ProductsPage> {
       return AlertDialog(title:const Text('ویرایش کالا'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         field(n,'نام کالا'),
         DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد کالا'),items:editUnits.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:used.isNotEmpty?null:(v)=>refresh(()=>unit=v??unit)),
-        if(used.isNotEmpty)const Text('به دلیل وجود سابقه خرید و فروش، واحد اصلی این کالا قابل تغییر نیست.',style:TextStyle(color:Colors.orange,fontSize:12)),
+        if(used.isNotEmpty)const Text('واحد کالای دارای سابقه قابل تغییر نیست.',style:TextStyle(color:Colors.orange,fontSize:12)),
         field(q,'موجودی فعلی',number:true),
         Wrap(spacing:5,children:quantityPresets(unit,seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>q.text=cleanQty(p['value'] as double)))).toList()),
         field(b,'قیمت خرید هر '+unit,number:true),field(s,'قیمت فروش هر '+unit,number:true),
         Text('سود احتمالی موجودی: '+money.format(stock*(sellPrice-buyPrice))+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold,color:Colors.green)),
+        if(used.isNotEmpty)const Padding(padding:EdgeInsets.only(top:8),child:Text('هر تغییر موجودی به‌صورت سند اصلاح موجودی ثبت می‌شود تا سابقه انبار و حسابداری حفظ شود.',style:TextStyle(fontSize:11,color:Colors.blueGrey))),
       ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره تغییرات'))]);
     }));
     if(ok==true&&n.text.trim().isNotEmpty){
-      final buyPrice=parseNum(b.text)??0,sellPrice=parseNum(s.text)??0,stock=parseNum(q.text)??0;
-      if(stock<0||buyPrice<0||sellPrice<0)return;
-      await db.update('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'updated':DateTime.now().toIso8601String()},where:'id=?',whereArgs:[x['id']]);
-      if(buyPrice!=(x['buy'] as num).toDouble()||sellPrice!=(x['sell'] as num).toDouble())await db.insert('price_history',{'product_id':x['id'],'buy':buyPrice,'sell':sellPrice,'changed':DateTime.now().toIso8601String()});
+      final parsedStock=parseNum(q.text),parsedBuy=parseNum(b.text),parsedSell=parseNum(s.text);
+      if(parsedStock==null||parsedBuy==null||parsedSell==null||parsedStock<0||parsedBuy<0||parsedSell<0){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی و قیمت‌ها باید عدد معتبر و غیرمنفی باشند.')));
+        return;
+      }
+      final stock=parsedStock,buyPrice=parsedBuy,sellPrice=parsedSell,now=DateTime.now().toIso8601String();
+      await db.transaction((t)async{
+        await t.update('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'updated':now},where:'id=?',whereArgs:[x['id']]);
+        if((buyPrice-(x['buy'] as num).toDouble()).abs()>0.000001||(sellPrice-(x['sell'] as num).toDouble()).abs()>0.000001){
+          await t.insert('price_history',{'product_id':x['id'],'buy':buyPrice,'sell':sellPrice,'changed':now});
+        }
+        final delta=stock-oldStock;
+        if(delta.abs()>0.000001){
+          await t.insert('entries',{'product_id':x['id'],'product_name':n.text.trim(),'type':'اصلاح موجودی','qty':delta.abs(),'price':0,'total':0,'paid':0,'note':'اصلاح موجودی از ${money.format(oldStock)} به ${money.format(stock)} ${unit}','created':now});
+        }
+      });
       widget.onChanged();if(mounted)setState((){});
     }
   }
@@ -312,7 +327,7 @@ class _EntriesPageState extends State<EntriesPage> {
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف سند'),content:const Text('با حذف این سند، موجودی کالا نیز به حالت قبل برمی‌گردد. ادامه می‌دهید؟'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));
     if(ok!=true)return;final db=await ShopDb.instance.database;await db.transaction((t)async{final q=(x['qty'] as num).toDouble();final sign=x['type']=='خرید'?-1.0:1.0;await t.rawUpdate('UPDATE products SET stock=stock+? WHERE id=?',[q*sign,x['product_id']]);if(x['cash_id']!=null)await t.delete('cash',where:'id=?',whereArgs:[x['cash_id']]);await t.delete('entries',where:'id=?',whereArgs:[x['id']]);});widget.onChanged();setState((){});
   }
-  @override Widget build(BuildContext context)=>Column(children:[Padding(padding:const EdgeInsets.all(12),child:SegmentedButton<String>(segments:const [ButtonSegment(value:'فروش',label:Text('ثبت فروش'),icon:Icon(Icons.trending_up)),ButtonSegment(value:'خرید',label:Text('ثبت خرید'),icon:Icon(Icons.shopping_cart))],selected:{type},onSelectionChanged:(s)=>setState(()=>type=s.first))),Expanded(child:FutureBuilder<List<Map<String,Object?>>>(future:entryRows(),builder:(c,s){if(!s.hasData)return const Center(child:CircularProgressIndicator());if(s.data!.isEmpty)return const Center(child:Text('هنوز خرید یا فروشی ثبت نشده است'));return ListView.builder(itemCount:s.data!.length,itemBuilder:(c,i){final x=s.data![i];final sale=x['type']=='فروش';return ListTile(leading:Icon(sale?Icons.arrow_upward:Icons.arrow_downward,color:sale?Colors.green:Colors.blue),title:Text('${x['product_name']} • ${x['type']}${sale&&x['customer_name']!=null?' • ${x['customer_name']}':(!sale&&x['supplier_name']!=null?' • ${x['supplier_name']}':'')}'),subtitle:Text('${money.format(x['qty'])} ${x['product_unit']??''} × ${money.format(x['price'])} افغانی • ${sale?'نقد دریافت‌شده':'نقد پرداخت‌شده'}: ${money.format(x['paid']??0)} • ${sale?'باقی‌مانده نسیه':'باقی‌مانده بدهی'}: ${money.format((x['total'] as num)-(x['paid'] as num))} • ${(x['total'] as num)-(x['paid'] as num)<=0?'تسویه نقدی':(x['paid'] as num)>0?'پرداخت بخشی':'نسیه کامل'} • ${afghanDate(DateTime.parse(x['created'].toString()))}'),trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit')editEntry(x);else deleteEntry(x);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش سند')),PopupMenuItem(value:'delete',child:Text('حذف سند'))],child:Text('${money.format(x['total'])} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.green:Colors.blue))));});})),Padding(padding:const EdgeInsets.all(12),child:FilledButton.icon(onPressed:add,icon:const Icon(Icons.add),label:Text('ثبت $type'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(48))))]);
+  @override Widget build(BuildContext context)=>Column(children:[Padding(padding:const EdgeInsets.all(12),child:SegmentedButton<String>(segments:const [ButtonSegment(value:'فروش',label:Text('ثبت فروش'),icon:Icon(Icons.trending_up)),ButtonSegment(value:'خرید',label:Text('ثبت خرید'),icon:Icon(Icons.shopping_cart))],selected:{type},onSelectionChanged:(s)=>setState(()=>type=s.first))),Expanded(child:FutureBuilder<List<Map<String,Object?>>>(future:entryRows(),builder:(c,s){if(!s.hasData)return const Center(child:CircularProgressIndicator());if(s.data!.isEmpty)return const Center(child:Text('هنوز خرید یا فروشی ثبت نشده است'));return ListView.builder(itemCount:s.data!.length,itemBuilder:(c,i){final x=s.data![i];final sale=x['type']=='فروش',purchase=x['type']=='خرید',adjustment=x['type']=='اصلاح موجودی';final qty=(x['qty'] as num).toDouble();final note=' ${afghanDate(DateTime.parse(x['created'].toString()))}';return ListTile(leading:Icon(adjustment?Icons.tune:sale?Icons.arrow_upward:Icons.arrow_downward,color:adjustment?Colors.orange:sale?Colors.green:Colors.blue),title:Text('${x['product_name']} • ${x['type']}${sale&&x['customer_name']!=null?' • ${x['customer_name']}':(purchase&&x['supplier_name']!=null?' • ${x['supplier_name']}':'')}'),subtitle:Text(adjustment?'تغییر موجودی: ${money.format(qty)} ${x['product_unit']??''} • ${x['note']??''} • ${note}':'${money.format(qty)} ${x['product_unit']??''} × ${money.format(x['price'])} افغانی • ${sale?'نقد دریافت‌شده':'نقد پرداخت‌شده'}: ${money.format(x['paid']??0)} • ${sale?'باقی‌مانده نسیه':'باقی‌مانده بدهی'}: ${money.format((x['total'] as num)-(x['paid'] as num))} • ${(x['total'] as num)-(x['paid'] as num)<=0?'تسویه نقدی':(x['paid'] as num)>0?'پرداخت بخشی':'نسیه کامل'} • ${note}'),trailing:adjustment?Text('اصلاح',style:TextStyle(fontWeight:FontWeight.bold,color:Colors.orange)):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editEntry(x);else deleteEntry(x);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش سند')),PopupMenuItem(value:'delete',child:Text('حذف سند'))],child:Text('${money.format(x['total'])} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.green:Colors.blue))));});})),Padding(padding:const EdgeInsets.all(12),child:FilledButton.icon(onPressed:add,icon:const Icon(Icons.add),label:Text('ثبت $type'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(48))))]);
 }
 class CashPage extends StatefulWidget {final VoidCallback onChanged;const CashPage({super.key,required this.onChanged});@override State<CashPage> createState()=>_CashPageState();}
 class _CashPageState extends State<CashPage> {
