@@ -414,7 +414,7 @@ class _EntriesPageState extends State<EntriesPage> {
           ])
         ])));
       })),
-      ])
+      ]);
     })),
     Padding(padding:const EdgeInsets.fromLTRB(12,5,12,10),child:FilledButton.icon(onPressed:add,icon:const Icon(Icons.add),label:Text('ثبت $type'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(46))))
   ]);
