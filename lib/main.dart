@@ -79,19 +79,58 @@ class _HomePageState extends State<HomePage> {
     return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت مغازه',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'صندوق'),NavigationDestination(icon:Icon(Icons.groups_outlined),label:'حساب‌ها'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
   }
 }
-class Dashboard extends StatelessWidget {
+class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
+  @override State<Dashboard> createState()=>_DashboardState();
+}
+class _DashboardState extends State<Dashboard> {
+  String period='امروز';
   Future<Map<String,double>> stats() async {
-    final db=await ShopDb.instance.database; final today=DateFormat('yyyy-MM-dd').format(DateTime.now());
-    Future<double> q(String sql,List<Object?> args) async {final r=await db.rawQuery(sql,args);return ((r.first.values.first as num?)??0).toDouble();}
-    return {'sales':await q("SELECT COALESCE(SUM(total),0) FROM entries WHERE type='فروش' AND substr(created,1,10)=?",[today]),'purchases':await q("SELECT COALESCE(SUM(total),0) FROM entries WHERE type='خرید' AND substr(created,1,10)=?",[today]),'withdraw':await q("SELECT COALESCE(SUM(amount),0) FROM cash WHERE type='برداشت' AND substr(created,1,10)=?",[today]),'products':await q('SELECT COUNT(*) FROM products',[]),'cash':await q("SELECT COALESCE(SUM(CASE WHEN type='دریافت' THEN amount ELSE -amount END),0) FROM cash",[])};
+    final db=await ShopDb.instance.database;
+    final now=DateTime.now();
+    final today=DateTime(now.year,now.month,now.day);
+    final start=period=='هفته'?today.subtract(const Duration(days:6)):period=='ماه'?DateTime(now.year,now.month,1):today;
+    final end=today.add(const Duration(days:1));
+    Future<double> sum(String table,String column,String where,List<Object?> args) async {
+      final r=await db.rawQuery('SELECT COALESCE(SUM($column),0) AS total FROM $table WHERE $where',args);
+      return ((r.first['total'] as num?)??0).toDouble();
+    }
+    final from=start.toIso8601String(),to=end.toIso8601String();
+    final sales=await sum('entries','total',"type='فروش' AND created>=? AND created<?",[from,to]);
+    final purchases=await sum('entries','total',"type='خرید' AND created>=? AND created<?",[from,to]);
+    final received=await sum('cash','amount',"type='دریافت' AND created>=? AND created<?",[from,to]);
+    final paid=await sum('cash','amount',"type='برداشت' AND created>=? AND created<?",[from,to]);
+    final allReceived=await sum('cash','amount',"type='دریافت'",[]);
+    final allPaid=await sum('cash','amount',"type='برداشت'",[]);
+    final inventory=await db.rawQuery('SELECT COALESCE(SUM(stock*buy),0) AS value FROM products');
+    final stockValue=((inventory.first['value'] as num?)??0).toDouble();
+    final productCount=await db.rawQuery('SELECT COUNT(*) AS count FROM products');
+    return {'sales':sales,'purchases':purchases,'received':received,'paid':paid,'cash':allReceived-allPaid,'allReceived':allReceived,'allPaid':allPaid,'stockValue':stockValue,'products':((productCount.first['count'] as num?)??0).toDouble()};
   }
+  Widget metric(String label,double value,IconData icon,Color color,{bool isMoney=true})=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[CircleAvatar(radius:18,backgroundColor:color.withOpacity(.10),child:Icon(icon,color:color,size:19)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(fontSize:11,color:Colors.blueGrey)),const SizedBox(height:4),Text(isMoney?'${money.format(value)} افغانی':money.format(value),style:const TextStyle(fontSize:15,fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis)]))])));
   @override Widget build(BuildContext context)=>FutureBuilder<Map<String,double>>(future:stats(),builder:(c,s){
-    if(!s.hasData)return const Center(child:CircularProgressIndicator());final v=s.data!;
-    return ListView(padding:const EdgeInsets.all(16),children:[
-      Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xff087f5b),Color(0xff16a078)]),borderRadius:BorderRadius.circular(20)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('خلاصه امروز • ${afghanDate(DateTime.now(),withTime:false)}',style:const TextStyle(color:Colors.white70)),const SizedBox(height:8),Text('${money.format(v['sales'])} افغانی',style:const TextStyle(color:Colors.white,fontSize:28,fontWeight:FontWeight.bold)),const Text('مجموع فروش ثبت‌شده امروز',style:TextStyle(color:Colors.white70))])),
-      const SizedBox(height:16),GridView.count(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisCount:2,childAspectRatio:1.55,crossAxisSpacing:12,mainAxisSpacing:12,children:[StatCard('خرید امروز',v['purchases']!,Icons.shopping_bag_outlined,Colors.blue),StatCard('برداشت امروز',v['withdraw']!,Icons.south_west,Colors.red),StatCard('تعداد کالاها',v['products']!,Icons.inventory_2_outlined,Colors.teal,isMoney:false),StatCard('مانده تقریبی صندوق',v['cash']!,Icons.account_balance_wallet_outlined,Colors.green)]),
-      const SizedBox(height:18),const Card(child:Padding(padding:EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('یادآوری',style:TextStyle(fontWeight:FontWeight.bold,fontSize:16)),SizedBox(height:8),Text('اطلاعات روی همین دستگاه و بدون اینترنت ذخیره می‌شود. همگام‌سازی با کامپیوتر و پشتیبان‌گیری هنوز تکمیل نشده است.')])))
+    if(!s.hasData)return const Center(child:CircularProgressIndicator());
+    final v=s.data!;
+    return ListView(padding:const EdgeInsets.fromLTRB(12,10,12,20),children:[
+      Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xff087f5b),Color(0xff16a078)]),borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        const Text('موجودی فعلی صندوق مغازه',style:TextStyle(color:Colors.white70,fontSize:12)),
+        const SizedBox(height:5),Text('${money.format(v['cash'])} افغانی',style:const TextStyle(color:Colors.white,fontSize:27,fontWeight:FontWeight.bold)),
+        const SizedBox(height:4),Text('دریافت کل: ${money.format(v['allReceived'])}  •  پرداخت کل: ${money.format(v['allPaid'])}',style:const TextStyle(color:Colors.white70,fontSize:11))
+      ])),
+      const SizedBox(height:12),
+      SegmentedButton<String>(segments:const [ButtonSegment(value:'امروز',label:Text('امروز')),ButtonSegment(value:'هفته',label:Text('۷ روز')),ButtonSegment(value:'ماه',label:Text('این ماه'))],selected:{period},onSelectionChanged:(x)=>setState(()=>period=x.first)),
+      const SizedBox(height:8),
+      Text('گزارش ${period=='امروز'?'امروز':period=='هفته'?'هفت روز اخیر':'ماه جاری'}',style:const TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
+      metric('مجموع فروش',v['sales']!,Icons.trending_up,Colors.green),
+      metric('مجموع خرید',v['purchases']!,Icons.shopping_bag_outlined,Colors.blue),
+      metric('دریافت نقدی',v['received']!,Icons.call_received,Colors.teal),
+      metric('پرداخت و برداشت',v['paid']!,Icons.call_made,Colors.red),
+      const SizedBox(height:8),
+      const Text('وضعیت مغازه',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
+      metric('ارزش خرید موجودی کالا',v['stockValue']!,Icons.inventory_2_outlined,Colors.indigo),
+      metric('تعداد کالاها',v['products']!,Icons.category_outlined,Colors.blueGrey,isMoney:false),
+      const SizedBox(height:8),
+      const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('تمام مبلغ‌ها به افغانی است. گزارش‌ها از اسناد ثبت‌شده محاسبه می‌شوند و با ویرایش سند، جمع‌ها نیز خودکار اصلاح می‌شوند.',style:TextStyle(fontSize:11,color:Colors.blueGrey))))
     ]);
   });
 }
@@ -321,20 +360,57 @@ class _EntriesPageState extends State<EntriesPage> {
     final qty=TextEditingController(text:'${x['qty']}'),price=TextEditingController(text:'${x['price']}'),note=TextEditingController(text:'${x['note']??''}'),paid=TextEditingController(text:'${x['paid']??0}');
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('ویرایش ${x['type']}'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[field(qty,'مقدار '+(x['product_unit']?.toString()??''),number:true),Wrap(spacing:5,children:quantityPresets(x['product_unit']?.toString()??'عدد',seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>qty.text=(p['value'] as double).toStringAsFixed(3))).toList()),field(price,'قیمت هر واحد',number:true),field(paid,x['type']=='فروش'?'مبلغ نقد دریافت‌شده هنگام فروش':'مبلغ نقد پرداخت‌شده هنگام خرید',number:true),field(note,'یادداشت')])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));
     if(ok!=true)return;final q=parseNum(qty.text)??0,pv=parseNum(price.text)??0,paidValue=parseNum(paid.text)??0;if(q<=0||pv<0||paidValue<0||paidValue>q*pv)return;
-    final db=await ShopDb.instance.database;await db.transaction((t)async{
+    final db=await ShopDb.instance.database;
+    try { await db.transaction((t)async{
       final oldQty=(x['qty'] as num).toDouble();final delta=q-oldQty;final sign=x['type']=='خرید'?1.0:-1.0;
+      final productRows=await t.query('products',where:'id=?',whereArgs:[x['product_id']],limit:1);
+      if(productRows.isEmpty)throw StateError('کالای این سند پیدا نشد.');
+      final currentStock=(productRows.first['stock'] as num).toDouble();
+      if(currentStock+delta*sign < -0.000001)throw StateError('موجودی کافی نیست؛ مقدار فروش را کاهش دهید.');
       await t.rawUpdate('UPDATE products SET stock=stock+? WHERE id=?',[delta*sign,x['product_id']]);
       await t.update('entries',{'qty':q,'price':pv,'total':q*pv,'paid':paidValue,'note':note.text},where:'id=?',whereArgs:[x['id']]);
       final cashId=x['cash_id'];
       if(cashId!=null){if(paidValue>0){await t.update('cash',{'amount':paidValue},where:'id=?',whereArgs:[cashId]);}else{await t.delete('cash',where:'id=?',whereArgs:[cashId]);await t.update('entries',{'cash_id':null},where:'id=?',whereArgs:[x['id']]);}}
       else if(paidValue>0){final newCashId=await t.insert('cash',{'type':x['type']=='فروش'?'دریافت':'برداشت','amount':paidValue,'note':'ثبت پرداخت ویرایش‌شده از سند #${x['id']}','created':x['created']});await t.update('entries',{'cash_id':newCashId},where:'id=?',whereArgs:[x['id']]);}
-    });widget.onChanged();setState((){});
+    }); } catch(e) { if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString().replaceFirst('Bad state: ','')))); return; }
+    widget.onChanged();setState((){});
   }
   Future<void> deleteEntry(Map<String,Object?> x) async {
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف سند'),content:const Text('با حذف این سند، موجودی کالا نیز به حالت قبل برمی‌گردد. ادامه می‌دهید؟'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));
     if(ok!=true)return;final db=await ShopDb.instance.database;await db.transaction((t)async{final q=(x['qty'] as num).toDouble();final sign=x['type']=='خرید'?-1.0:1.0;await t.rawUpdate('UPDATE products SET stock=stock+? WHERE id=?',[q*sign,x['product_id']]);if(x['cash_id']!=null)await t.delete('cash',where:'id=?',whereArgs:[x['cash_id']]);await t.delete('entries',where:'id=?',whereArgs:[x['id']]);});widget.onChanged();setState((){});
   }
-  @override Widget build(BuildContext context)=>Column(children:[Padding(padding:const EdgeInsets.all(12),child:SegmentedButton<String>(segments:const [ButtonSegment(value:'فروش',label:Text('ثبت فروش'),icon:Icon(Icons.trending_up)),ButtonSegment(value:'خرید',label:Text('ثبت خرید'),icon:Icon(Icons.shopping_cart))],selected:{type},onSelectionChanged:(s)=>setState(()=>type=s.first))),Expanded(child:FutureBuilder<List<Map<String,Object?>>>(future:entryRows(),builder:(c,s){if(!s.hasData)return const Center(child:CircularProgressIndicator());if(s.data!.isEmpty)return const Center(child:Text('هنوز خرید یا فروشی ثبت نشده است'));return ListView.builder(itemCount:s.data!.length,itemBuilder:(c,i){final x=s.data![i];final sale=x['type']=='فروش',purchase=x['type']=='خرید',adjustment=x['type']=='اصلاح موجودی';final qty=(x['qty'] as num).toDouble();final note=' ${afghanDate(DateTime.parse(x['created'].toString()))}';return ListTile(leading:Icon(adjustment?Icons.tune:sale?Icons.arrow_upward:Icons.arrow_downward,color:adjustment?Colors.orange:sale?Colors.green:Colors.blue),title:Text('${x['product_name']} • ${x['type']}${sale&&x['customer_name']!=null?' • ${x['customer_name']}':(purchase&&x['supplier_name']!=null?' • ${x['supplier_name']}':'')}'),subtitle:Text(adjustment?'تغییر موجودی: ${money.format(qty)} ${x['product_unit']??''} • ${x['note']??''} • ${note}':'${money.format(qty)} ${x['product_unit']??''} × ${money.format(x['price'])} افغانی • ${sale?'نقد دریافت‌شده':'نقد پرداخت‌شده'}: ${money.format(x['paid']??0)} • ${sale?'باقی‌مانده نسیه':'باقی‌مانده بدهی'}: ${money.format((x['total'] as num)-(x['paid'] as num))} • ${(x['total'] as num)-(x['paid'] as num)<=0?'تسویه نقدی':(x['paid'] as num)>0?'پرداخت بخشی':'نسیه کامل'} • ${note}'),trailing:adjustment?Text('اصلاح',style:TextStyle(fontWeight:FontWeight.bold,color:Colors.orange)):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editEntry(x);else deleteEntry(x);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش سند')),PopupMenuItem(value:'delete',child:Text('حذف سند'))],child:Text('${money.format(x['total'])} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.green:Colors.blue))));});})),Padding(padding:const EdgeInsets.all(12),child:FilledButton.icon(onPressed:add,icon:const Icon(Icons.add),label:Text('ثبت $type'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(48))))]);
+  @override Widget build(BuildContext context)=>Column(children:[
+    Padding(padding:const EdgeInsets.fromLTRB(12,8,12,5),child:SegmentedButton<String>(segments:const [ButtonSegment(value:'فروش',label:Text('فروش'),icon:Icon(Icons.trending_up)),ButtonSegment(value:'خرید',label:Text('خرید'),icon:Icon(Icons.shopping_cart))],selected:{type},onSelectionChanged:(s)=>setState(()=>type=s.first))),
+    Expanded(child:FutureBuilder<List<Map<String,Object?>>>(future:entryRows(),builder:(c,s){
+      if(!s.hasData)return const Center(child:CircularProgressIndicator());
+      final rows=s.data!.where((x)=>x['type']==type||x['type']=='اصلاح موجودی').toList();
+      if(rows.isEmpty)return Center(child:Text(type=='فروش'?'هنوز فروشی ثبت نشده است':'هنوز خریدی ثبت نشده است'));
+      return ListView.separated(padding:const EdgeInsets.fromLTRB(10,4,10,12),itemCount:rows.length,separatorBuilder:(_,__)=>const SizedBox(height:2),itemBuilder:(c,i){
+        final x=rows[i],sale=x['type']=='فروش',adjustment=x['type']=='اصلاح موجودی';
+        final total=(x['total'] as num?)?.toDouble()??0,paid=(x['paid'] as num?)?.toDouble()??0;
+        final left=total-paid;
+        final party=sale?x['customer_name']:x['supplier_name'];
+        final date=afghanDate(DateTime.parse(x['created'].toString()));
+        return Card(child:Padding(padding:const EdgeInsets.symmetric(horizontal:10,vertical:5),child:Row(children:[
+          CircleAvatar(radius:18,backgroundColor:(adjustment?Colors.orange:(sale?Colors.green:Colors.blue)).withOpacity(.10),child:Icon(adjustment?Icons.tune:(sale?Icons.south_america:Icons.shopping_bag_outlined),size:18,color:adjustment?Colors.orange:(sale?Colors.green:Colors.blue))),
+          const SizedBox(width:9),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text('${x['product_name']}  ${adjustment?'(اصلاح موجودی)':sale?'(فروش)':'(خرید)'}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:13),maxLines:1,overflow:TextOverflow.ellipsis),
+            Text(adjustment?'${x['note']??''} • $date':'${party??(sale?'مشتری نقدی':'فروشنده نامشخص')} • ${money.format(x['qty'])} ${x['product_unit']??''} × ${money.format(x['price'])} • $date',style:const TextStyle(fontSize:10,color:Colors.blueGrey),maxLines:2,overflow:TextOverflow.ellipsis),
+            if(!adjustment)Text('پرداخت‌شده: ${money.format(paid)}  •  باقی: ${money.format(left)}',style:TextStyle(fontSize:10,color:left>0?Colors.orange:Colors.green))
+          ])),
+          const SizedBox(width:4),
+          Column(crossAxisAlignment:CrossAxisAlignment.end,mainAxisAlignment:MainAxisAlignment.center,children:[
+            Text('${money.format(total)}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.green:Colors.blue,fontSize:13)),
+            const Text('افغانی',style:TextStyle(fontSize:9,color:Colors.blueGrey)),
+            if(!adjustment)IconButton(visualDensity:VisualDensity.compact,constraints:const BoxConstraints.tightFor(width:34,height:34),tooltip:'ویرایش سند',onPressed:()=>editEntry(x),icon:const Icon(Icons.edit_outlined,size:18))
+          ])
+        ])));
+      });
+    })),
+    Padding(padding:const EdgeInsets.fromLTRB(12,5,12,10),child:FilledButton.icon(onPressed:add,icon:const Icon(Icons.add),label:Text('ثبت $type'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(46))))
+  ]);
+
 }
 class CashPage extends StatefulWidget {final VoidCallback onChanged;const CashPage({super.key,required this.onChanged});@override State<CashPage> createState()=>_CashPageState();}
 class _CashPageState extends State<CashPage> {
