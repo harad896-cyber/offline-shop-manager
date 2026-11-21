@@ -116,7 +116,7 @@ class _EntriesPageState extends State<EntriesPage> {
       final x=products.firstWhere((e)=>e['id']==selected);
       final amount=parseNum(qty.text)??0,unitPrice=parseNum(price.text)??0,total=amount*unitPrice;
       final paidAmount=type=='فروش'?(paid.text.trim().isEmpty?total:(parseNum(paid.text)??0)):0.0;
-      if(amount<=0||unitPrice<0||paidAmount<0||paidAmount>total){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار، قیمت یا مبلغ نقدی معتبر نیست.')));return;}
+      if(amount<=0||unitPrice<0||paidAmount<0||paidAmount>total){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار، قیمت یا مبلغ نقدی معتبر نیست.')));return;} if(type=='فروش'&&paidAmount<total&&selectedCustomer==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت نسیه، ابتدا مشتری را جستجو و انتخاب کنید.')));return;}
       final currentStock=(x['stock'] as num).toDouble();
       if(type=='فروش'&&amount>currentStock){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی کالا کافی نیست.')));return;}
       await db.transaction((t)async{
