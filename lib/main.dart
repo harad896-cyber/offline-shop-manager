@@ -195,7 +195,7 @@ List<Map<String,Object>> quantityPresets(String unit, double seerGrams) {
 class ProductsPage extends StatefulWidget {final VoidCallback onChanged;const ProductsPage({super.key,required this.onChanged});@override State<ProductsPage> createState()=>_ProductsPageState();}
 class _ProductsPageState extends State<ProductsPage> {
   final units = const ['کیلوگرم','کیلو','سیر','گرم','عدد','بسته','کارتن'];
-  String cleanQty(double v)=>v.toStringAsFixed(8).replaceFirst(RegExp(r'\.?0+
+  String cleanQty(double v){final s=v.toStringAsFixed(8);return s.contains('.')?s.replaceFirst(RegExp(r'0+$'),'').replaceFirst(RegExp(r'\.$'),''):s;}
   Future<List<Map<String,Object?>>> productRows() async {
     final db=await ShopDb.instance.database;
     return db.rawQuery("SELECT products.*, (SELECT suppliers.name FROM entries LEFT JOIN suppliers ON suppliers.id=entries.supplier_id WHERE entries.product_id=products.id AND entries.type='خرید' AND entries.supplier_id IS NOT NULL ORDER BY entries.id DESC LIMIT 1) AS source_name FROM products ORDER BY products.name COLLATE NOCASE");
