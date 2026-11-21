@@ -122,10 +122,10 @@ class _ProductsPageState extends State<ProductsPage> {
       return AlertDialog(title:const Text('افزودن کالای جدید'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         field(n,'نام کالا'),
         DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد اصلی کالا'),items:units.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:(v)=>refresh(()=>unit=v??unit)),
-        const SizedBox(height:8),field(q,'موجودی اولیه',number:true),
+        const SizedBox(height:8),TextField(controller:q,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'موجودی اولیه',border:OutlineInputBorder())),
         Align(alignment:Alignment.centerRight,child:Text('مقدارهای آماده برای '+unit,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:12))),
         Wrap(spacing:5,runSpacing:4,children:quantityPresets(unit,seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>q.text=cleanQty(p['value'] as double)))).toList()),
-        field(b,'قیمت خرید هر '+unit+' (AFN)',number:true),field(s,'قیمت فروش هر '+unit+' (AFN)',number:true),
+        TextField(controller:b,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'قیمت خرید هر '+unit+' (AFN)',border:const OutlineInputBorder())),TextField(controller:s,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'قیمت فروش هر '+unit+' (AFN)',border:const OutlineInputBorder())),
         Container(width:double.infinity,margin:const EdgeInsets.only(top:8),padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Theme.of(context).colorScheme.surfaceContainerHighest,borderRadius:BorderRadius.circular(12)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text('سود هر واحد: '+money.format(sellPrice-buyPrice)+' افغانی',style:TextStyle(color:sellPrice>=buyPrice?Colors.green:Colors.red,fontWeight:FontWeight.bold)),
           Text('سود احتمالی موجودی: '+money.format(stock*(sellPrice-buyPrice))+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold)),
@@ -187,12 +187,13 @@ class _ProductsPageState extends State<ProductsPage> {
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف کالا'),content:Text('کالای «'+x['name'].toString()+'» حذف شود؟'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));
     if(ok==true){await db.delete('products',where:'id=?',whereArgs:[x['id']]);widget.onChanged();if(mounted)setState((){});}
   }
-  @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:add,icon:const Icon(Icons.add),label:const Text('کالای جدید')),body:FutureBuilder<List<Map<String,Object?>>>(future:ShopDb.instance.rows('products',order:'name COLLATE NOCASE'),builder:(c,s){
+  @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,body:FutureBuilder<List<Map<String,Object?>>>(future:ShopDb.instance.rows('products',order:'name COLLATE NOCASE'),builder:(c,s){
     if(!s.hasData)return const Center(child:CircularProgressIndicator());final products=s.data!;
     final stockValue=products.fold<double>(0,(a,x)=>a+((x['stock'] as num).toDouble()*(x['buy'] as num).toDouble()));
     final saleValue=products.fold<double>(0,(a,x)=>a+((x['stock'] as num).toDouble()*(x['sell'] as num).toDouble()));
     final profit=saleValue-stockValue;
     return Column(children:[
+      Padding(padding:const EdgeInsets.fromLTRB(12,8,12,2),child:SizedBox(width:double.infinity,child:FilledButton.tonalIcon(onPressed:add,icon:const Icon(Icons.add),label:const Text('ثبت کالای جدید')))),
       Expanded(child:products.isEmpty?const Center(child:Text('هنوز کالایی ثبت نشده است')):ListView.builder(padding:const EdgeInsets.fromLTRB(10,8,10,12),itemCount:products.length,itemBuilder:(c,i){
         final x=products[i];final stock=(x['stock'] as num).toDouble(),buy=(x['buy'] as num).toDouble(),sell=(x['sell'] as num).toDouble();
         return Card(margin:const EdgeInsets.symmetric(vertical:4),child:ListTile(leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),title:Text(x['name'].toString()),subtitle:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
