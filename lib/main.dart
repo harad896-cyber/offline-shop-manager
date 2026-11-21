@@ -15,12 +15,12 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 6, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 7, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,updated TEXT NOT NULL)');
       await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
-      await db.execute('CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
+      await db.execute('CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER)');
       await db.execute('CREATE TABLE suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,address TEXT,opening_balance REAL NOT NULL DEFAULT 0)');
       await db.execute('CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
@@ -38,6 +38,7 @@ class ShopDb {
         });
         await db.update('entries', {'cash_id': cashId}, where: 'id=?', whereArgs: [entry['id']]);
       }
+      if (oldVersion < 7) { await db.execute('ALTER TABLE customer_payments ADD COLUMN cash_id INTEGER'); }
     } });
     return _db!;
   }
@@ -335,7 +336,7 @@ class _CustomersPageState extends State<CustomersPage>{
  Future<Map<String,double>> totals(List<Map<String,Object?>> customers) async {double debtor=0,creditor=0;for(final x in customers){final b=await balance(x['id'] as int);if(b>0)debtor+=b;else if(b<0)creditor+=b.abs();}return {'debtor':debtor,'creditor':creditor};}
  Future<double> balance(int id) async {final db=await ShopDb.instance.database;final r=await db.rawQuery("SELECT COALESCE((SELECT opening_balance FROM customers WHERE id=?),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE customer_id=? AND type='فروش'),0)-COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id=?),0) AS b",[id,id,id]);return ((r.first['b'] as num?)??0).toDouble();}
  Future<void> form([Map<String,Object?>? x]) async {final n=TextEditingController(text:'${x?['name']??''}'),p=TextEditingController(text:'${x?['phone']??''}'),b=TextEditingController(text:'${x?['opening_balance']??x?['balance']??'0'}');final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text(x==null?'مشتری جدید':'ویرایش مشتری'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(n,'نام مشتری'),field(p,'شماره تماس (اختیاری)'),field(b,'مانده اول دوره (مثبت=بدهکار مشتری)',number:true)]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));if(ok==true&&n.text.trim().isNotEmpty){final db=await ShopDb.instance.database;final v={'name':n.text.trim(),'phone':p.text.trim(),'opening_balance':parseNum(b.text)??0.0};if(x==null){await db.insert('customers',v);}else{await db.update('customers',v,where:'id=?',whereArgs:[x['id']]);}setState((){});}}
- Future<void> account(Map<String,Object?> customer) async {final id=customer['id'] as int;final db=await ShopDb.instance.database;final sales=await db.query('entries',where:"customer_id=? AND type='فروش'",whereArgs:[id],orderBy:'id DESC');final payments=await db.query('customer_payments',where:'customer_id=?',whereArgs:[id],orderBy:'id DESC');final bal=await balance(id);if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text('حساب ${customer['name']}'),content:SizedBox(width:380,child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(bal>0?'بدهی مشتری: ${money.format(bal)} افغانی':bal<0?'طلب مشتری از ما: ${money.format(bal.abs())} افغانی':'حساب تسویه است',style:TextStyle(fontWeight:FontWeight.bold,color:bal>0?Colors.red:bal<0?Colors.green:Colors.blueGrey)),const Divider(),Flexible(child:ListView(shrinkWrap:true,children:[...sales.map((x)=>ListTile(dense:true,leading:const Icon(Icons.shopping_bag_outlined),title:Text('${x['product_name']} • فروش'),subtitle:Text('${faDigits(money.format(x['total']))} مبلغ • نقدی: ${money.format(x['paid'])} • نسیه: ${money.format((x['total'] as num)-(x['paid'] as num))}'),trailing:Text(DateFormat('MM/dd').format(DateTime.parse('${x['created']}'))))),...payments.map((x)=>ListTile(dense:true,leading:const Icon(Icons.payments_outlined,color:Colors.green),title:Text('پرداخت مشتری: ${money.format(x['amount'])} افغانی'),subtitle:Text('${x['note']??''}')))]))])),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن')),FilledButton.icon(onPressed:(){Navigator.pop(c);receive(customer);},icon:const Icon(Icons.add),label:const Text('ثبت دریافت پول'))]));}
+ Future<void> account(Map<String,Object?> customer) async { if(!mounted)return; await Navigator.of(context).push(MaterialPageRoute(builder:(_)=>CustomerAccountPage(customer:customer,onChanged:()=>setState((){})))); }
  Future<void> receive(Map<String,Object?> customer) async {final a=TextEditingController(),n=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت از ${customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(a,'مبلغ دریافتی (افغانی)',number:true),field(n,'توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت دریافت'))]));final amount=parseNum(a.text)??0;if(ok==true&&amount>0){final db=await ShopDb.instance.database;await db.transaction((t)async{await t.insert('customer_payments',{'customer_id':customer['id'],'amount':amount,'note':n.text,'created':DateTime.now().toIso8601String()});await t.insert('cash',{'type':'دریافت','amount':amount,'note':'دریافت از مشتری ${customer['name']} • ${n.text}','created':DateTime.now().toIso8601String()});});setState((){});}}
  Future<void> receiveAny(List<Map<String,Object?>> customers) async {
    if(customers.isEmpty){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('ابتدا مشتری ثبت کنید.')));return;}
@@ -379,6 +380,62 @@ class _CustomersPageState extends State<CustomersPage>{
    });
  }));
 }
+
+class CustomerAccountPage extends StatefulWidget {
+ final Map<String,Object?> customer; final VoidCallback onChanged;
+ const CustomerAccountPage({super.key,required this.customer,required this.onChanged});
+ @override State<CustomerAccountPage> createState()=>_CustomerAccountPageState();
+}
+class _CustomerAccountPageState extends State<CustomerAccountPage> {
+ Future<Map<String,Object?>> loadLedger() async {
+  final db=await ShopDb.instance.database,id=widget.customer['id'];
+  final cr=await db.query('customers',where:'id=?',whereArgs:[id],limit:1);
+  final opening=cr.isEmpty?0.0:((cr.first['opening_balance'] as num?)??0).toDouble();
+  final sales=await db.rawQuery("SELECT entries.*, COALESCE(products.unit,'') AS product_unit FROM entries LEFT JOIN products ON products.id=entries.product_id WHERE entries.customer_id=? AND entries.type='فروش' ORDER BY entries.created ASC, entries.id ASC",[id]);
+  final payments=await db.query('customer_payments',where:'customer_id=?',whereArgs:[id],orderBy:'created ASC, id ASC');
+  final events=<Map<String,Object?>>[];
+  for(final x in sales){events.add({'kind':'sale','id':x['id'],'created':x['created'],'title':x['product_name'],'qty':x['qty'],'unit':x['product_unit'],'price':x['price'],'total':x['total'],'paid':x['paid'],'note':x['note']});}
+  for(final x in payments){events.add({'kind':'payment','id':x['id'],'created':x['created'],'title':'دریافت از مشتری','amount':x['amount'],'note':x['note']});}
+  events.sort((a,b){final d=DateTime.parse(a['created'].toString()).compareTo(DateTime.parse(b['created'].toString()));if(d!=0)return d;return (a['id'] as int).compareTo(b['id'] as int);});
+  double salesTotal=0,paidAtSale=0,creditSales=0,received=0,running=opening;
+  for(final e in events){if(e['kind']=='sale'){final total=(e['total'] as num).toDouble(),paid=(e['paid'] as num).toDouble(),debt=total-paid;salesTotal+=total;paidAtSale+=paid;creditSales+=debt;running+=debt;e['delta']=debt;e['running']=running;}else{final amount=(e['amount'] as num).toDouble();received+=amount;running-=amount;e['delta']=-amount;e['running']=running;}}
+  return {'opening':opening,'sales':salesTotal,'paid':paidAtSale,'creditSales':creditSales,'received':received,'balance':running,'events':events};
+ }
+ String status(double b)=>b>0.005?'مشتری بدهکار است':b< -0.005?'مغازه به مشتری بدهکار است':'حساب تسویه است';
+ Color statusColor(double b)=>b>0.005?Colors.red:b< -0.005?Colors.green:Colors.blueGrey;
+ Future<void> receive() async {
+  final amount=TextEditingController(),note=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (AFN)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت دریافت'))]));
+  final value=parseNum(amount.text)??0;
+  if(ok==true&&value>0){final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();await db.transaction((t)async{
+   final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'note':note.text.trim(),'created':created});
+   final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});
+   await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
+  });widget.onChanged();if(mounted)setState((){});}
+ }
+ @override Widget build(BuildContext context)=>Scaffold(
+  appBar:AppBar(title:Text('حساب مشتری: ${widget.customer['name']}'),actions:[IconButton(tooltip:'ثبت دریافت',onPressed:receive,icon:const Icon(Icons.add_card))]),
+  floatingActionButton:FloatingActionButton.extended(onPressed:receive,icon:const Icon(Icons.payments_outlined),label:const Text('ثبت دریافت پول')),
+  body:FutureBuilder<Map<String,Object?>>(future:loadLedger(),builder:(context,s){
+   if(!s.hasData)return const Center(child:CircularProgressIndicator());
+   final v=s.data!,balance=(v['balance'] as num).toDouble(),events=v['events'] as List<Map<String,Object?>>,color=statusColor(balance);
+   Widget metric(String label,Object? value,{Color? tint})=>Expanded(child:Container(margin:const EdgeInsets.all(4),padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Theme.of(context).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(12)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(fontSize:11,color:Colors.blueGrey)),const SizedBox(height:5),Text('${money.format(value)} AFN',style:TextStyle(fontSize:13,fontWeight:FontWeight.bold,color:tint),maxLines:1,overflow:TextOverflow.ellipsis)])));
+   return Column(children:[
+    Container(width:double.infinity,margin:const EdgeInsets.fromLTRB(12,10,12,5),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:color.withOpacity(.09),borderRadius:BorderRadius.circular(16),border:Border.all(color:color.withOpacity(.35))),child:Column(children:[const Text('مانده نهایی حساب',style:TextStyle(fontSize:12,color:Colors.blueGrey)),const SizedBox(height:4),Text('${money.format(balance.abs())} افغانی',style:TextStyle(fontSize:27,fontWeight:FontWeight.bold,color:color)),Text(status(balance),style:TextStyle(color:color,fontWeight:FontWeight.bold)),if(widget.customer['phone']!=null&&widget.customer['phone'].toString().isNotEmpty)Text(widget.customer['phone'].toString(),style:const TextStyle(fontSize:11,color:Colors.blueGrey))])),
+    Row(children:[metric('جمع خرید مشتری',v['sales']),metric('پرداخت نقدی خرید',v['paid'])]),
+    Row(children:[metric('بدهی ایجادشده',v['creditSales'],tint:Colors.red),metric('دریافت‌های بعدی',v['received'],tint:Colors.green)]),
+    Padding(padding:const EdgeInsets.fromLTRB(14,8,14,4),child:Row(children:[const Expanded(child:Text('گردش حساب مشتری',style:TextStyle(fontWeight:FontWeight.bold,fontSize:15))),Text('${events.length} سند',style:const TextStyle(fontSize:11,color:Colors.blueGrey))])),
+    Expanded(child:events.isEmpty?(v['opening']==0?const Center(child:Text('هنوز خرید یا دریافتی برای این مشتری ثبت نشده است')):const Center(child:Text('مانده اول دوره ثبت شده است'))):ListView.builder(padding:const EdgeInsets.fromLTRB(10,2,10,90),itemCount:events.length+(v['opening']==0?0:1),itemBuilder:(context,index){
+     if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} AFN',style:TextStyle(fontWeight:FontWeight.bold,color:statusColor(opening)))));}
+     final e=events[events.length-1-index],sale=e['kind']=='sale',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),created=DateTime.parse(e['created'].toString());
+     final date=DateFormat('yyyy/MM/dd  HH:mm').format(created);
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:Colors.green).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:Colors.green)),title:Text(sale?'خرید مشتری: ${e['title']}':'دریافت از مشتری',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • کل: ${money.format(e['total'])} • نقدی: ${money.format(e['paid'])} • به حساب: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))])));
+    })),
+   ]);
+  })
+ );
+}
+
 class SuppliersPage extends StatefulWidget {const SuppliersPage({super.key});@override State<SuppliersPage> createState()=>_SuppliersPageState();}
 class _SuppliersPageState extends State<SuppliersPage>{
  Future<double> balance(int id) async {final db=await ShopDb.instance.database;final r=await db.rawQuery("SELECT COALESCE((SELECT opening_balance FROM suppliers WHERE id=?),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE supplier_id=? AND type='خرید'),0)-COALESCE((SELECT SUM(amount) FROM supplier_payments WHERE supplier_id=?),0) AS b",[id,id,id]);return ((r.first['b'] as num?)??0).toDouble();}
