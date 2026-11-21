@@ -38,7 +38,8 @@ class ShopDb {
         });
         await db.update('entries', {'cash_id': cashId}, where: 'id=?', whereArgs: [entry['id']]);
       }
-      if (oldVersion < 7) { await db.execute('ALTER TABLE customer_payments ADD COLUMN cash_id INTEGER'); }
+    }
+    if (oldVersion < 7) { await db.execute('ALTER TABLE customer_payments ADD COLUMN cash_id INTEGER'); }
       if (oldVersion < 8) { await db.execute("ALTER TABLE customer_payments ADD COLUMN type TEXT NOT NULL DEFAULT 'دریافت'"); }
     } });
     return _db!;
