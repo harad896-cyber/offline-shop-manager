@@ -75,8 +75,8 @@ class HomePage extends StatefulWidget { const HomePage({super.key}); @override S
 class _HomePageState extends State<HomePage> {
   int tab=0,revision=0; void reload()=>setState(()=>revision++);
   @override Widget build(BuildContext context) {
-    final pages=[Dashboard(key:ValueKey('d$revision')),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload),CashPage(key:ValueKey('c$revision'),onChanged:reload),AccountsPage(key:ValueKey('u$revision')),SettingsPage(key:ValueKey('s$revision'))];
-    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت مغازه',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'صندوق'),NavigationDestination(icon:Icon(Icons.groups_outlined),label:'حساب‌ها'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
+    final pages=[Dashboard(key:ValueKey('d$revision')),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload),FinancePage(key:ValueKey('f$revision'),onChanged:reload),SettingsPage(key:ValueKey('s$revision'))];
+    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت مغازه',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
   }
 }
 class Dashboard extends StatefulWidget {
@@ -392,7 +392,7 @@ class _EntriesPageState extends State<EntriesPage> {
         final party=sale?x['customer_name']:x['supplier_name'];
         final date=afghanDate(DateTime.parse(x['created'].toString()));
         return Card(child:Padding(padding:const EdgeInsets.symmetric(horizontal:10,vertical:5),child:Row(children:[
-          CircleAvatar(radius:18,backgroundColor:(adjustment?Colors.orange:(sale?Colors.green:Colors.blue)).withOpacity(.10),child:Icon(adjustment?Icons.tune:(sale?Icons.south_america:Icons.shopping_bag_outlined),size:18,color:adjustment?Colors.orange:(sale?Colors.green:Colors.blue))),
+          CircleAvatar(radius:18,backgroundColor:(adjustment?Colors.orange:(sale?Colors.green:Colors.blue)).withOpacity(.10),child:Icon(adjustment?Icons.tune:(sale?Icons.arrow_upward:Icons.shopping_bag_outlined),size:18,color:adjustment?Colors.orange:(sale?Colors.green:Colors.blue))),
           const SizedBox(width:9),
           Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text('${x['product_name']}  ${adjustment?'(اصلاح موجودی)':sale?'(فروش)':'(خرید)'}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:13),maxLines:1,overflow:TextOverflow.ellipsis),
@@ -681,6 +681,23 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
    ]);
   })
  );
+}
+
+class FinancePage extends StatefulWidget {
+ final VoidCallback onChanged;
+ const FinancePage({super.key,required this.onChanged});
+ @override State<FinancePage> createState()=>_FinancePageState();
+}
+class _FinancePageState extends State<FinancePage> {
+ int section=0;
+ @override Widget build(BuildContext context)=>Column(children:[
+  Padding(padding:const EdgeInsets.fromLTRB(10,8,10,4),child:SegmentedButton<int>(segments:const [
+   ButtonSegment(value:0,label:Text('صندوق'),icon:Icon(Icons.account_balance_wallet_outlined)),
+   ButtonSegment(value:1,label:Text('مشتریان'),icon:Icon(Icons.people_outline)),
+   ButtonSegment(value:2,label:Text('فروشندگان'),icon:Icon(Icons.storefront_outlined))
+  ],selected:{section},onSelectionChanged:(v)=>setState(()=>section=v.first))),
+  Expanded(child:section==0?CashPage(key:const ValueKey('cash'),onChanged:widget.onChanged):section==1?const CustomersPage(key:ValueKey('customers')):const SuppliersPage(key:ValueKey('suppliers')))
+ ]);
 }
 
 class AccountsPage extends StatefulWidget {const AccountsPage({super.key});@override State<AccountsPage> createState()=>_AccountsPageState();}
