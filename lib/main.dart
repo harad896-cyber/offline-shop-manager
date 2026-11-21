@@ -105,13 +105,13 @@ class _EntriesPageState extends State<EntriesPage> {
       return AlertDialog(title:Text('ثبت $type'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         DropdownButtonFormField<int>(value:selected,decoration:const InputDecoration(labelText:'انتخاب کالا'),items:products.map((x)=>DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']} (${x['unit']})'))).toList(),onChanged:(v){refresh(()=>selected=v);final x=products.firstWhere((e)=>e['id']==v);price.text='${x[type=='فروش'?'sell':'buy']}';}),
         if(type=='خرید') ...[
-          const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی مغازه / فروشنده',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh()),
+          const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی مغازه / فروشنده',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh((){})),
           if(customerSearch.text.isNotEmpty) ...suppliers.where((x)=>' ${x['name']} ${x['phone']??''}'.toLowerCase().contains(customerSearch.text.toLowerCase())).take(5).map((x)=>ListTile(dense:true,selected:selectedSupplier==x['id'],leading:const Icon(Icons.storefront_outlined),title:Text('${x['name']}'),subtitle:Text('${x['phone']??''}'),onTap:()=>refresh(()=>selectedSupplier=x['id'] as int))),
           if(selectedSupplier!=null) Align(alignment:Alignment.centerRight,child:TextButton(onPressed:()=>refresh(()=>selectedSupplier=null),child:Text('فروشنده: ${suppliers.firstWhere((x)=>x['id']==selectedSupplier)['name']} • حذف انتخاب'))),
           if(suppliers.isEmpty) const Text('برای ثبت حساب خرید، ابتدا فروشنده را در بخش حساب‌ها اضافه کنید.'),
         ],
         if(type=='فروش') ...[
-          const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی مشتری (اختیاری)',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh()),
+          const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی مشتری (اختیاری)',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh((){})),
           if(customerSearch.text.isNotEmpty) ...filtered.take(5).map((x)=>ListTile(dense:true,selected:selectedCustomer==x['id'],leading:const Icon(Icons.person_outline),title:Text('${x['name']}'),subtitle:Text('${x['phone']??''}'),onTap:()=>refresh(()=>selectedCustomer=x['id'] as int))),
           if(selectedCustomer!=null) Align(alignment:Alignment.centerRight,child:TextButton(onPressed:()=>refresh(()=>selectedCustomer=null),child:Text('مشتری: ${customers.firstWhere((x)=>x['id']==selectedCustomer)['name']} • حذف انتخاب'))),
           if(customers.isEmpty) const Text('هنوز مشتری ثبت نشده است؛ می‌توانید فروش را بدون انتخاب مشتری ثبت کنید.'),
