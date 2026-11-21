@@ -420,15 +420,23 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
  }
 
  Future<void> payCustomer() async {
-  final current=await loadLedger();final currentBalance=(current['balance'] as num).toDouble();final direction=currentBalance< -0.005?'پرداخت':'برگشت';
+  final current=await loadLedger();
+  final currentBalance=(current['balance'] as num).toDouble();
+  if(currentBalance>=-0.005){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('این مشتری از مغازه طلب ندارد. برای اصلاح فروش، سند فروش را بررسی کنید.')));return;}
+  final available=currentBalance.abs();
   final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت پول به ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ پرداختی (AFN)',number:true),field(note,'توضیحات / دلیل پرداخت')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت طلب مشتری: ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text('طلب قابل پرداخت: ${money.format(available)} افغانی',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (حداکثر ${money.format(available)})',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
   final value=parseNum(amount.text)??0;
-  if(ok==true&&value>0){final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();await db.transaction((t)async{
-   final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':direction,'note':note.text.trim(),'created':created});
-   final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});
-   await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
-  });widget.onChanged();if(mounted)setState((){});}
+  if(ok==true){
+   if(value<=0||value>available+0.005){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ پرداختی باید بیشتر از صفر و از طلب مشتری بیشتر نباشد.')));return;}
+   final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
+   await db.transaction((t)async{
+    final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'پرداخت','note':note.text.trim(),'created':created});
+    final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});
+    await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
+   });
+   widget.onChanged();if(mounted)setState((){});
+  }
  }
 
  @override Widget build(BuildContext context)=>Scaffold(
