@@ -111,6 +111,10 @@ class ProductsPage extends StatefulWidget {final VoidCallback onChanged;const Pr
 class _ProductsPageState extends State<ProductsPage> {
   final units = const ['کیلوگرم','کیلو','سیر','گرم','عدد','بسته','کارتن'];
   String cleanQty(double v)=>v.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'),'');
+  Future<List<Map<String,Object?>>> productRows() async {
+    final db=await ShopDb.instance.database;
+    return db.rawQuery("SELECT products.*, (SELECT suppliers.name FROM entries LEFT JOIN suppliers ON suppliers.id=entries.supplier_id WHERE entries.product_id=products.id AND entries.type='خرید' AND entries.supplier_id IS NOT NULL ORDER BY entries.id DESC LIMIT 1) AS source_name FROM products ORDER BY products.name COLLATE NOCASE");
+  }
   Future<void> add() async {
     final db=await ShopDb.instance.database;
     final suppliers=await db.query('suppliers',orderBy:'name');
@@ -187,7 +191,7 @@ class _ProductsPageState extends State<ProductsPage> {
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف کالا'),content:Text('کالای «'+x['name'].toString()+'» حذف شود؟'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));
     if(ok==true){await db.delete('products',where:'id=?',whereArgs:[x['id']]);widget.onChanged();if(mounted)setState((){});}
   }
-  @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,body:FutureBuilder<List<Map<String,Object?>>>(future:ShopDb.instance.rows('products',order:'name COLLATE NOCASE'),builder:(c,s){
+  @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,body:FutureBuilder<List<Map<String,Object?>>>(future:productRows(),builder:(c,s){
     if(!s.hasData)return const Center(child:CircularProgressIndicator());final products=s.data!;
     final stockValue=products.fold<double>(0,(a,x)=>a+((x['stock'] as num).toDouble()*(x['buy'] as num).toDouble()));
     final saleValue=products.fold<double>(0,(a,x)=>a+((x['stock'] as num).toDouble()*(x['sell'] as num).toDouble()));
@@ -199,6 +203,7 @@ class _ProductsPageState extends State<ProductsPage> {
         return Card(margin:const EdgeInsets.symmetric(vertical:4),child:ListTile(leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),title:Text(x['name'].toString()),subtitle:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
           Text('موجودی: '+money.format(stock)+' '+x['unit'].toString()+' • خرید: '+money.format(buy)+' • فروش: '+money.format(sell)+' AFN'),
           Text('سود هر واحد: '+money.format(sell-buy)+' • سود موجودی: '+money.format(stock*(sell-buy))+' AFN',style:TextStyle(fontSize:11,color:sell>=buy?Colors.green:Colors.red)),
+          Text('آخرین خرید از: '+(x['source_name']?.toString()??'ثبت نشده'),style:const TextStyle(fontSize:11,color:Colors.blueGrey)),
         ]),isThreeLine:true,trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit')editProduct(x);else if(v=='history')showPriceHistory(x);else deleteProduct(x);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش کالا و قیمت')),PopupMenuItem(value:'history',child:Text('تاریخچه تغییر قیمت')),PopupMenuItem(value:'delete',child:Text('حذف کالا'))])));
       })),
       Container(width:double.infinity,padding:const EdgeInsets.fromLTRB(12,9,12,10),decoration:BoxDecoration(color:Theme.of(context).colorScheme.surfaceContainer,boxShadow:[BoxShadow(color:Colors.black.withOpacity(.06),blurRadius:8,offset:const Offset(0,-2))]),child:Column(children:[
