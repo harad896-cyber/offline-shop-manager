@@ -324,7 +324,7 @@ class _CashPageState extends State<CashPage> {
       }),
       Expanded(child:rows.isEmpty?const Center(child:Text('تراکنش صندوقی ثبت نشده است')):ListView.builder(itemCount:rows.length,itemBuilder:(ctx,i){
         final x=rows[i];final note='${x['note']??''}';
-        final linked=note.startsWith('دریافت از مشتری')||note.startsWith('پرداخت به فروشنده')||note.contains('سند #')||note.startsWith('ثبت خودکار از سند');
+        final linked=note.startsWith('دریافت از مشتری')||note.startsWith('پرداخت به مشتری')||note.startsWith('پرداخت به فروشنده')||note.contains('سند #')||note.startsWith('ثبت خودکار از سند');
         return ListTile(leading:Icon(x['type']=='دریافت'?Icons.add_circle:Icons.remove_circle,color:x['type']=='دریافت'?Colors.green:Colors.red),title:Text('${x['type']}'),subtitle:Text(note),trailing:linked?Text('${money.format(x['amount'])} افغانی'):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCash(x);else deleteCash(x);},itemBuilder:(ctx)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش')),PopupMenuItem(value:'delete',child:Text('حذف'))],child:Text('${money.format(x['amount'])} افغانی')));
       }))
     ]);
