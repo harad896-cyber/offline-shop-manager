@@ -35,14 +35,14 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 12, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 13, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
       await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
       await db.execute("CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'دریافت')");
       await db.execute('CREATE TABLE suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,address TEXT,opening_balance REAL NOT NULL DEFAULT 0)');
-      await db.execute('CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER)');
+      await db.execute("CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'پرداخت')");
       await db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
       await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)');
       await db.execute('CREATE TABLE account_settlements(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,balance REAL NOT NULL,settled_at TEXT NOT NULL,note TEXT)');
@@ -67,6 +67,7 @@ class ShopDb {
       if (oldVersion < 10) { await db.execute('ALTER TABLE products ADD COLUMN pieces_per_carton INTEGER NOT NULL DEFAULT 1'); }
       if (oldVersion < 11) { await db.execute('CREATE TABLE account_settlements(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,balance REAL NOT NULL,settled_at TEXT NOT NULL,note TEXT)'); }
       if (oldVersion < 12) { await db.execute('CREATE TABLE account_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,direction TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)'); }
+      if (oldVersion < 13) { await db.execute("ALTER TABLE supplier_payments ADD COLUMN type TEXT NOT NULL DEFAULT 'پرداخت'"); }
     });
     return _db!;
   }
@@ -567,7 +568,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
   final adjustments=await db.query('account_adjustments',where:'account_type=? AND account_id=? AND (? IS NULL OR created>?)',whereArgs:['customer',id,cutoff,cutoff],orderBy:'created ASC,id ASC');
   final events=<Map<String,Object?>>[];
   for(final x in sales){events.add({'kind':'sale','id':x['id'],'created':x['created'],'title':x['product_name'],'qty':x['qty'],'unit':x['product_unit'],'price':x['price'],'total':x['total'],'paid':x['paid'],'note':x['note']});}
-  for(final x in payments){events.add({'kind':'payment','direction':x['type']??'دریافت','id':x['id'],'created':x['created'],'title':x['type']=='پرداخت'?'پرداخت نقدی به مشتری':x['type']=='برگشت'?'برگشت وجه به مشتری':'دریافت نقدی از مشتری','amount':x['amount'],'note':x['note']});}
+  for(final x in payments){events.add({'kind':'payment','direction':x['type']??'دریافت','id':x['id'],'created':x['created'],'title':x['type']=='پرداخت'?'پرداخت نقدی به مشتری':x['type']=='برگشت'?'برگشت وجه به مشتری':'دریافت نقدی از مشتری','amount':x['amount'],'note':x['note'],'cash_id':x['cash_id']});}
   for(final x in adjustments){events.add({'kind':'adjustment','direction':x['direction'],'id':x['id'],'created':x['created'],'title':x['direction']=='increase'?'افزایش بدهی مشتری':'افزایش طلب مشتری','amount':x['amount'],'note':x['note']});}
   events.sort((a,b){final d=DateTime.parse(a['created'].toString()).compareTo(DateTime.parse(b['created'].toString()));if(d!=0)return d;return (a['id'] as int).compareTo(b['id'] as int);});
   double salesTotal=0,paidAtSale=0,creditSales=0,received=0,paidToCustomer=0,running=carry;
@@ -593,6 +594,58 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
   if(ok==true&&value>0){
    final db=await ShopDb.instance.database;
    await db.insert('account_adjustments',{'account_type':'customer','account_id':widget.customer['id'],'direction':direction,'amount':value,'note':note.text.trim(),'created':DateTime.now().toIso8601String()});
+   widget.onChanged();if(mounted)setState((){});
+  }
+ }
+ Future<void> editLedgerEvent(Map<String,Object?> e) async {
+  final kind=e['kind'];
+  String direction=(kind=='adjustment'?e['direction']:e['direction']??'دریافت').toString();
+  final amount=TextEditingController(text:'\${e['amount']??''}');
+  final note=TextEditingController(text:'\${e['note']??''}');
+  final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(
+   title:const Text('ویرایش گردش حساب'),
+   content:Column(mainAxisSize:MainAxisSize.min,children:[
+    if(kind=='payment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع گردش'),items:const [
+     DropdownMenuItem(value:'دریافت',child:Text('دریافت پول از مشتری')),
+     DropdownMenuItem(value:'پرداخت',child:Text('پرداخت نقدی به مشتری')),
+     DropdownMenuItem(value:'برگشت',child:Text('برگشت وجه فروش')),
+    ],onChanged:(v)=>refresh(()=>direction=v??'دریافت')),
+    if(kind=='adjustment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع اصلاح حساب'),items:const [
+     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مشتری')),
+     DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مشتری')),
+    ],onChanged:(v)=>refresh(()=>direction=v??'increase')),
+    field(amount,'مبلغ (افغانی)',number:true),field(note,'توضیحات')
+   ]),
+   actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره تغییرات'))]
+  )));
+  final value=parseNum(amount.text)??0;
+  if(ok==true&&value>0){
+   final db=await ShopDb.instance.database;
+   await db.transaction((t)async{
+    if(kind=='adjustment'){
+     await t.update('account_adjustments',{'direction':direction,'amount':value,'note':note.text.trim()},where:'id=? AND account_type=? AND account_id=?',whereArgs:[e['id'],'customer',widget.customer['id']]);
+    }else{
+     await t.update('customer_payments',{'type':direction,'amount':value,'note':note.text.trim()},where:'id=? AND customer_id=?',whereArgs:[e['id'],widget.customer['id']]);
+     final cashId=e['cash_id'];
+     if(cashId!=null) await t.update('cash',{'type':direction=='دریافت'?'دریافت':'برداشت','amount':value,'note':'\${direction=='دریافت'?'دریافت از مشتری':'پرداخت به مشتری'} \${widget.customer['name']} • \${note.text.trim()}'},where:'id=?',whereArgs:[cashId]);
+    }
+   });
+   widget.onChanged();if(mounted)setState((){});
+  }
+ }
+ Future<void> deleteLedgerEvent(Map<String,Object?> e) async {
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف گردش حساب'),content:const Text('این مورد از سوابق حساب حذف شود؟ اگر دریافت یا پرداخت نقدی باشد، سند متناظر صندوق هم حذف می‌شود.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));
+  if(ok==true){
+   final db=await ShopDb.instance.database;
+   await db.transaction((t)async{
+    if(e['kind']=='adjustment'){
+     await t.delete('account_adjustments',where:'id=? AND account_type=? AND account_id=?',whereArgs:[e['id'],'customer',widget.customer['id']]);
+    }else{
+     final cashId=e['cash_id'];
+     await t.delete('customer_payments',where:'id=? AND customer_id=?',whereArgs:[e['id'],widget.customer['id']]);
+     if(cashId!=null) await t.delete('cash',where:'id=?',whereArgs:[cashId]);
+    }
+   });
    widget.onChanged();if(mounted)setState((){});
   }
  }
@@ -622,13 +675,12 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
  Future<void> payCustomer() async {
   final current=await loadLedger();
   final currentBalance=(current['balance'] as num).toDouble();
-  if(currentBalance>=-0.005){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('این مشتری از مغازه طلب ندارد. برای اصلاح فروش، سند فروش را بررسی کنید.')));return;}
   final available=currentBalance.abs();
   final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت طلب مشتری: ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text('طلب قابل پرداخت: ${money.format(available)} افغانی',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (حداکثر ${money.format(available)})',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت نقدی به مشتری: ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(currentBalance< -0.005?'طلب فعلی مشتری: ${money.format(available)} افغانی':'پرداخت جدید حتی بدون خرید کالا؛ مبلغ پرداختی به حساب مشتری اضافه می‌شود.',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
   final value=parseNum(amount.text)??0;
   if(ok==true){
-   if(value<=0||value>available+0.005){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ پرداختی باید بیشتر از صفر و از طلب مشتری بیشتر نباشد.')));return;}
+   if(value<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر باشد.')));return;}
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
    await db.transaction((t)async{
     final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'پرداخت','note':note.text.trim(),'created':created});
@@ -640,7 +692,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
  }
 
  @override Widget build(BuildContext context)=>Scaffold(
-  appBar:AppBar(title:Text('حساب مشتری: ${widget.customer['name']}'),actions:[IconButton(tooltip:'ثبت بدهی یا طلب دستی',onPressed:adjustBalance,icon:const Icon(Icons.edit_note)),IconButton(tooltip:'سوابق تسویه',onPressed:showSettlementHistory,icon:const Icon(Icons.history)),IconButton(tooltip:'تسویه حساب',onPressed:settleAccount,icon:const Icon(Icons.archive_outlined)),IconButton(tooltip:'پرداخت به مشتری',onPressed:payCustomer,icon:const Icon(Icons.outbound)),IconButton(tooltip:'ثبت دریافت',onPressed:receive,icon:const Icon(Icons.add_card))]),
+  appBar:AppBar(title:Text('حساب مشتری: ${widget.customer['name']}'),actions:[IconButton(tooltip:'ثبت بدهی یا طلب دستی',onPressed:adjustBalance,icon:const Icon(Icons.edit_note)),IconButton(tooltip:'سوابق تسویه',onPressed:showSettlementHistory,icon:const Icon(Icons.history)),IconButton(tooltip:'تسویه حساب',onPressed:settleAccount,icon:const Icon(Icons.archive_outlined)),IconButton(tooltip:'پرداخت نقدی به مشتری (حتی بدون خرید)',onPressed:payCustomer,icon:const Icon(Icons.outbound)),IconButton(tooltip:'ثبت دریافت',onPressed:receive,icon:const Icon(Icons.add_card))]),
   floatingActionButton:FloatingActionButton.extended(onPressed:receive,icon:const Icon(Icons.payments_outlined),label:const Text('ثبت دریافت پول')),
   body:FutureBuilder<Map<String,Object?>>(future:loadLedger(),builder:(context,s){
    if(!s.hasData)return const Center(child:CircularProgressIndicator());
@@ -656,7 +708,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
      if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:statusColor(opening)))));}
      final e=events[events.length-1-index],sale=e['kind']=='sale',incoming=e['direction']=='دریافت',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),created=DateTime.parse(e['created'].toString());
      final date=afghanDate(created);
-     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:(incoming?Colors.green:Colors.orange)).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),title:Text(sale?'فروش کالا به مشتری: ${e['title']}':e['title'].toString(),style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع فروش: ${money.format(e['total'])} • نقد دریافت‌شده هنگام فروش: ${money.format(e['paid'])} • باقی‌مانده نسیه: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))])));
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:(incoming?Colors.green:Colors.orange)).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),title:Text(sale?'فروش کالا به مشتری: ${e['title']}':e['title'].toString(),style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع فروش: ${money.format(e['total'])} • نقد دریافت‌شده هنگام فروش: ${money.format(e['paid'])} • باقی‌مانده نسیه: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))]),if(!sale)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
     })),
    ]);
   })
@@ -696,12 +748,12 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
   final adjustments=await db.query('account_adjustments',where:'account_type=? AND account_id=? AND (? IS NULL OR created>?)',whereArgs:['supplier',supplierId,cutoff,cutoff],orderBy:'created ASC,id ASC');
   final events=<Map<String,Object?>>[];
   for(final x in purchases){events.add({'kind':'purchase','id':x['id'],'created':x['created'],'title':x['product_name'],'qty':x['qty'],'unit':x['product_unit'],'price':x['price'],'total':x['total'],'paid':x['paid'],'note':x['note']});}
-  for(final x in payments){events.add({'kind':'payment','id':x['id'],'created':x['created'],'amount':x['amount'],'note':x['note']});}
+  for(final x in payments){events.add({'kind':'payment','id':x['id'],'created':x['created'],'amount':x['amount'],'note':x['note'],'type':x['type']??'پرداخت','direction':x['type']??'پرداخت','cash_id':x['cash_id']});}
   for(final x in adjustments){events.add({'kind':'adjustment','id':x['id'],'created':x['created'],'direction':x['direction'],'amount':x['amount'],'note':x['note']});}
   events.sort((a,b){final d=DateTime.parse(a['created'].toString()).compareTo(DateTime.parse(b['created'].toString()));if(d!=0)return d;return (a['id'] as int).compareTo(b['id'] as int);});
-  double purchaseTotal=0,paidAtPurchase=0,purchaseDebt=0,paymentsTotal=0,running=carry;
-  for(final e in events){if(e['kind']=='purchase'){final total=(e['total'] as num).toDouble(),paid=(e['paid'] as num).toDouble(),debt=total-paid;purchaseTotal+=total;paidAtPurchase+=paid;purchaseDebt+=debt;running+=debt;e['delta']=debt;}else if(e['kind']=='adjustment'){final amount=(e['amount'] as num).toDouble(),delta=e['direction']=='increase'?amount:-amount;running+=delta;e['delta']=delta;}else{final amount=(e['amount'] as num).toDouble();paymentsTotal+=amount;running-=amount;e['delta']=-amount;}e['running']=running;}
-  return {'opening':carry,'purchases':purchaseTotal,'settlements':await db.query('account_settlements',where:'account_type=? AND account_id=?',whereArgs:['supplier',supplierId],orderBy:'settled_at DESC,id DESC'),'paidAtPurchase':paidAtPurchase,'purchaseDebt':purchaseDebt,'payments':paymentsTotal,'balance':running,'events':events};
+  double purchaseTotal=0,paidAtPurchase=0,purchaseDebt=0,paymentsTotal=0,receivedFromSupplier=0,running=carry;
+  for(final e in events){if(e['kind']=='purchase'){final total=(e['total'] as num).toDouble(),paid=(e['paid'] as num).toDouble(),debt=total-paid;purchaseTotal+=total;paidAtPurchase+=paid;purchaseDebt+=debt;running+=debt;e['delta']=debt;}else if(e['kind']=='adjustment'){final amount=(e['amount'] as num).toDouble(),delta=e['direction']=='increase'?amount:-amount;running+=delta;e['delta']=delta;}else{final amount=(e['amount'] as num).toDouble();if(e['direction']=='دریافت'){receivedFromSupplier+=amount;running+=amount;e['delta']=amount;}else{paymentsTotal+=amount;running-=amount;e['delta']=-amount;}}e['running']=running;}
+  return {'opening':carry,'purchases':purchaseTotal,'settlements':await db.query('account_settlements',where:'account_type=? AND account_id=?',whereArgs:['supplier',supplierId],orderBy:'settled_at DESC,id DESC'),'paidAtPurchase':paidAtPurchase,'purchaseDebt':purchaseDebt,'payments':paymentsTotal,'received':receivedFromSupplier,'balance':running,'events':events};
  }
  Future<void> adjustBalance() async {
   String direction='increase';
@@ -725,6 +777,67 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
    widget.onChanged();if(mounted)setState((){});
   }
  }
+ Future<void> receiveFromSupplier() async {
+  final amount=TextEditingController(),note=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از فروشنده \${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (افغانی)',number:true),field(note,'علت / توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت دریافت'))]));
+  final value=parseNum(amount.text)??0;
+  if(ok==true&&value>0){
+   final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
+   await db.transaction((t)async{final id=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'type':'دریافت','note':note.text.trim(),'created':created});final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از فروشنده \${widget.supplier['name']} • \${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[id]);});
+   widget.onChanged();if(mounted)setState((){});
+  }
+ }
+ Future<void> editLedgerEvent(Map<String,Object?> e) async {
+  final kind=e['kind'];
+  String direction=(kind=='adjustment'?e['direction']:e['direction']??'پرداخت').toString();
+  final amount=TextEditingController(text:'\${e['amount']??''}');
+  final note=TextEditingController(text:'\${e['note']??''}');
+  final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(
+   title:const Text('ویرایش گردش حساب فروشنده'),
+   content:Column(mainAxisSize:MainAxisSize.min,children:[
+    if(kind=='payment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع گردش'),items:const [
+     DropdownMenuItem(value:'پرداخت',child:Text('پرداخت پول به فروشنده')),
+     DropdownMenuItem(value:'دریافت',child:Text('دریافت پول از فروشنده')),
+    ],onChanged:(v)=>refresh(()=>direction=v??'پرداخت')),
+    if(kind=='adjustment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع اصلاح حساب'),items:const [
+     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مغازه')),
+     DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مغازه')),
+    ],onChanged:(v)=>refresh(()=>direction=v??'increase')),
+    field(amount,'مبلغ (افغانی)',number:true),field(note,'توضیحات')
+   ]),
+   actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره تغییرات'))]
+  )));
+  final value=parseNum(amount.text)??0;
+  if(ok==true&&value>0){
+   final db=await ShopDb.instance.database;
+   await db.transaction((t)async{
+    if(kind=='adjustment'){
+     await t.update('account_adjustments',{'direction':direction,'amount':value,'note':note.text.trim()},where:'id=? AND account_type=? AND account_id=?',whereArgs:[e['id'],'supplier',supplierId]);
+    }else{
+     await t.update('supplier_payments',{'type':direction,'amount':value,'note':note.text.trim()},where:'id=? AND supplier_id=?',whereArgs:[e['id'],supplierId]);
+     final cashId=e['cash_id'];
+     if(cashId!=null) await t.update('cash',{'type':direction=='دریافت'?'دریافت':'برداشت','amount':value,'note':'\${direction=='دریافت'?'دریافت از فروشنده':'پرداخت به فروشنده'} \${widget.supplier['name']} • \${note.text.trim()}'},where:'id=?',whereArgs:[cashId]);
+    }
+   });
+   widget.onChanged();if(mounted)setState((){});
+  }
+ }
+ Future<void> deleteLedgerEvent(Map<String,Object?> e) async {
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('حذف گردش حساب فروشنده'),content:const Text('این مورد از سوابق حساب حذف شود؟ سند متناظر صندوق هم حذف می‌شود.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));
+  if(ok==true){
+   final db=await ShopDb.instance.database;
+   await db.transaction((t)async{
+    if(e['kind']=='adjustment'){
+     await t.delete('account_adjustments',where:'id=? AND account_type=? AND account_id=?',whereArgs:[e['id'],'supplier',supplierId]);
+    }else{
+     final cashId=e['cash_id'];
+     await t.delete('supplier_payments',where:'id=? AND supplier_id=?',whereArgs:[e['id'],supplierId]);
+     if(cashId!=null) await t.delete('cash',where:'id=?',whereArgs:[cashId]);
+    }
+   });
+   widget.onChanged();if(mounted)setState((){});
+  }
+ }
  Future<void> settleAccount() async {
   final v=await loadLedger();final balance=(v['balance'] as num).toDouble();
   final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('تسویه حساب فروشنده'),content:Text('گردش‌های فعلی به سوابق تسویه منتقل می‌شوند. مانده ${money.format(balance.abs())} افغانی (${balance>0?'بدهی ما':balance<0?'طلب ما':'تسویه'}) بدون تغییر به دوره بعد منتقل می‌شود.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('انصراف')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت تسویه'))]));
@@ -739,18 +852,17 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
  String status(double b)=>b>0.005?'ما به فروشنده بدهکاریم':b< -0.005?'فروشنده به ما بدهکار است':'حساب تسویه است';
  Future<void> pay() async {
   final ledger=await loadLedger();final balance=(ledger['balance'] as num).toDouble();
-  if(balance<=0.005){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('در حال حاضر بدهی قابل پرداختی به این فروشنده ندارید.')));return;}
   final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت به ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text('بدهی فعلی: ${money.format(balance)} افغانی',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (حداکثر ${money.format(balance)})',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت نقدی به فروشنده ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(balance>0.005?'بدهی فعلی به فروشنده: ${money.format(balance)} افغانی':'پرداخت پیش‌پرداخت حتی بدون خرید کالا؛ در حساب فروشنده ثبت می‌شود.',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
   final value=parseNum(amount.text)??0;
-  if(ok==true){if(value<=0||value>balance+0.005){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر و از بدهی فعلی بیشتر نباشد.')));return;}
+  if(ok==true){if(value<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر باشد.')));return;}
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
    await db.transaction((t)async{final paymentId=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'note':note.text.trim(),'created':created});final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);});
    widget.onChanged();if(mounted)setState((){});
   }
  }
  @override Widget build(BuildContext context)=>Scaffold(
-  appBar:AppBar(title:Text('حساب فروشنده: ${widget.supplier['name']}'),actions:[IconButton(tooltip:'ثبت بدهی یا طلب دستی',onPressed:adjustBalance,icon:const Icon(Icons.edit_note)),IconButton(tooltip:'سوابق تسویه',onPressed:showSettlementHistory,icon:const Icon(Icons.history)),IconButton(tooltip:'تسویه حساب',onPressed:settleAccount,icon:const Icon(Icons.archive_outlined)),IconButton(tooltip:'ثبت پرداخت',onPressed:pay,icon:const Icon(Icons.payments_outlined))]),
+  appBar:AppBar(title:Text('حساب فروشنده: ${widget.supplier['name']}'),actions:[IconButton(tooltip:'ثبت بدهی یا طلب دستی',onPressed:adjustBalance,icon:const Icon(Icons.edit_note)),IconButton(tooltip:'سوابق تسویه',onPressed:showSettlementHistory,icon:const Icon(Icons.history)),IconButton(tooltip:'تسویه حساب',onPressed:settleAccount,icon:const Icon(Icons.archive_outlined)),IconButton(tooltip:'دریافت پول از فروشنده',onPressed:receiveFromSupplier,icon:const Icon(Icons.add_card)),IconButton(tooltip:'ثبت پرداخت',onPressed:pay,icon:const Icon(Icons.payments_outlined))]),
   floatingActionButton:FloatingActionButton.extended(onPressed:pay,icon:const Icon(Icons.outbound),label:const Text('ثبت پرداخت به فروشنده')),
   body:FutureBuilder<Map<String,Object?>>(future:loadLedger(),builder:(context,s){
    if(!s.hasData)return const Center(child:CircularProgressIndicator());
@@ -764,8 +876,8 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
     Padding(padding:const EdgeInsets.fromLTRB(14,8,14,4),child:Row(children:[const Expanded(child:Text('گردش حساب فروشنده',style:TextStyle(fontWeight:FontWeight.bold,fontSize:15))),Text('${events.length} سند',style:const TextStyle(fontSize:11,color:Colors.blueGrey))])),
     Expanded(child:ListView.builder(padding:const EdgeInsets.fromLTRB(10,2,10,90),itemCount:events.length+(v['opening']==0?0:1),itemBuilder:(context,index){
      if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:tint(opening)))));}
-     final e=events[events.length-1-index],purchase=e['kind']=='purchase',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),date=afghanDate(DateTime.parse(e['created'].toString()));
-     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(purchase?Colors.red:Colors.green).withOpacity(.10),child:Icon(purchase?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:purchase?Colors.red:Colors.green)),title:Text(purchase?'خرید کالا از فروشنده: ${e['title']}':e['kind']=='adjustment'?(delta>0?'افزایش بدهی به فروشنده':'افزایش طلب از فروشنده'):'پرداخت نقدی به فروشنده',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(purchase?'مقدار: ${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع خرید: ${money.format(e['total'])} • نقد پرداخت‌شده هنگام خرید: ${money.format(e['paid'])} • باقی‌مانده بدهی: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از پرداخت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:tint(running)))])));
+     final e=events[events.length-1-index],purchase=e['kind']=='purchase',incoming=e['direction']=='دریافت',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),date=afghanDate(DateTime.parse(e['created'].toString()));
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(purchase?Colors.red:Colors.green).withOpacity(.10),child:Icon(purchase?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:purchase?Colors.red:Colors.green)),title:Text(purchase?'خرید کالا از فروشنده: ${e['title']}':e['kind']=='adjustment'?(delta>0?'افزایش بدهی به فروشنده':'افزایش طلب از فروشنده'):incoming?'دریافت نقدی از فروشنده':'پرداخت نقدی به فروشنده',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(purchase?'مقدار: ${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع خرید: ${money.format(e['total'])} • نقد پرداخت‌شده هنگام خرید: ${money.format(e['paid'])} • باقی‌مانده بدهی: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از پرداخت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:tint(running)))]),if(!purchase)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
     })),
    ]);
   })
