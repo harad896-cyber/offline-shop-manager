@@ -2,18 +2,29 @@
 
 برنامهٔ حسابداری و انبارداری فارسی برای اندروید و رایانه؛ آفلاین و با ذخیره‌سازی محلی.
 
-## دانلود و نصب اندروید
+## دانلود برنامه برای اندروید
 
-### [⬇️ دانلود مستقیم فایل نصب APK](https://github.com/harad896-cyber/offline-shop-manager/releases/latest/download/offline-shop-manager.apk)
+<details>
+<summary><strong>⬇️ دریافت فایل نصب APK</strong></summary>
 
-اگر دانلود مستقیم باز نشد، [صفحهٔ همهٔ نسخه‌ها (Releases)](https://github.com/harad896-cyber/offline-shop-manager/releases) را باز کنید و فایل **offline-shop-manager.apk** را از آخرین نسخه دریافت کنید.
+**دانلود مستقیم آخرین نسخهٔ منتشرشده:**
 
-> لینک دانلود بالا همیشه به آخرین نسخهٔ موفق منتشرشده اشاره می‌کند. تا وقتی ساخت APK با موفقیت تمام نشود، نسخهٔ جدیدی منتشر نمی‌شود.
+[دانلود APK](https://github.com/harad896-cyber/offline-shop-manager/releases/latest/download/offline-shop-manager.apk)
 
-## وضعیت ساخت و نسخه‌ها
+اگر لینک مستقیم باز نشد، وارد صفحهٔ نسخه‌ها شوید و از بخش **Assets** فایل `offline-shop-manager.apk` را دریافت کنید:
 
-- [مشاهدهٔ وضعیت ساخت APK در GitHub Actions](https://github.com/harad896-cyber/offline-shop-manager/actions/workflows/android-apk.yml)
-- [مشاهدهٔ همهٔ نسخه‌ها و فایل‌های APK](https://github.com/harad896-cyber/offline-shop-manager/releases)
+[مشاهده و دانلود همهٔ نسخه‌ها در GitHub Releases](https://github.com/harad896-cyber/offline-shop-manager/releases)
+
+[مشاهدهٔ آخرین نسخهٔ تأییدشده (نسخهٔ پشتیبان فعلی: shop-v66)](https://github.com/harad896-cyber/offline-shop-manager/releases/tag/shop-v66)
+
+</details>
+
+> لینک «آخرین نسخه» فقط پس از موفقیت کامل ساخت و انتشار، به نسخهٔ جدید منتقل می‌شود. اگر ساخت جدید خطا بدهد، نسخهٔ منتشرشدهٔ قبلی در دسترس می‌ماند.
+
+## وضعیت ساخت
+
+- [بررسی وضعیت ساخت APK](https://github.com/harad896-cyber/offline-shop-manager/actions/workflows/android-apk.yml)
+- [صفحهٔ همهٔ نسخه‌ها و فایل‌های دانلود](https://github.com/harad896-cyber/offline-shop-manager/releases)
 
 ## امکانات
 
