@@ -1,18 +1,27 @@
-# Offline Shop Manager
+# مدیریت مغازه آفلاین
 
-An offline-first Persian (RTL) shop accounting and inventory app for Android and desktop.
+برنامهٔ حسابداری و انبارداری فارسی برای اندروید و رایانه، با ذخیره‌سازی محلی و امکان استفاده بدون اینترنت.
 
-Core records are stored locally on-device. No account, cloud service, or internet connection is required for daily use.
+## دانلود مستقیم نسخهٔ اندروید
 
-## Build Android APK
+**[دانلود APK آخرین نسخه از GitHub Releases](https://github.com/harad896-cyber/offline-shop-manager/releases/latest/download/offline-shop-manager.apk)**
 
-Push to `main` or run the **Build Android APK** workflow from the Actions tab. The workflow builds a debug APK and uploads it as an artifact.
+[مشاهده همهٔ نسخه‌ها و فایل‌های دانلود](https://github.com/harad896-cyber/offline-shop-manager/releases)
 
-## Planned capabilities
+اگر لینک مستقیم باز نشد، وارد بخش Releases شوید و فایل `offline-shop-manager.apk` را انتخاب کنید.
 
-- AFN currency and configurable product units (including configurable seer conversion)
-- Product inventory, purchases, sales, numbered receipts
-- Cash/credit transactions, customer balances, expenses and withdrawals
-- Daily/monthly summaries, backup/restore, and local-network device sync
+## وضعیت ساخت نسخه
 
-This repository is the separate shop-management project; it does not modify other repositories.
+[مشاهدهٔ اجرای ساخت APK در GitHub Actions](https://github.com/harad896-cyber/offline-shop-manager/actions/workflows/android-apk.yml)
+
+هر نسخه فقط پس از موفقیت تست‌ها و ساخت APK در بخش Releases منتشر می‌شود. اگر اجرای ساخت خطا بدهد، نسخهٔ جدیدی منتشر نخواهد شد و لینک دانلود به آخرین نسخهٔ موفق قبلی اشاره می‌کند.
+
+## ویژگی‌ها
+
+- واحد پول افغانی (AFN) و تنظیم مقدار هر سیر
+- ثبت کالا، خرید، فروش و موجودی
+- حساب مشتریان و فروشندگان، بدهی و پرداخت‌ها
+- ثبت وزن‌های کوچک با دقت اعشاری
+- پشتیبان‌گیری و بازیابی اطلاعات
+
+اطلاعات روزمره روی دستگاه ذخیره می‌شود و برای ثبت فروش و خرید به اینترنت نیاز نیست.
