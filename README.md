@@ -1,22 +1,21 @@
 # مدیریت مغازه آفلاین
 
-برنامهٔ حسابداری و انبارداری فارسی برای اندروید و رایانه، با ذخیره‌سازی محلی و امکان استفاده بدون اینترنت.
+برنامهٔ حسابداری و انبارداری فارسی برای اندروید و رایانه؛ آفلاین و با ذخیره‌سازی محلی.
 
-## دانلود مستقیم نسخهٔ اندروید
+## دانلود و نصب اندروید
 
-**[دانلود APK آخرین نسخه از GitHub Releases](https://github.com/harad896-cyber/offline-shop-manager/releases/latest/download/offline-shop-manager.apk)**
+### [⬇️ دانلود مستقیم فایل نصب APK](https://github.com/harad896-cyber/offline-shop-manager/releases/latest/download/offline-shop-manager.apk)
 
-[مشاهده همهٔ نسخه‌ها و فایل‌های دانلود](https://github.com/harad896-cyber/offline-shop-manager/releases)
+اگر دانلود مستقیم باز نشد، [صفحهٔ همهٔ نسخه‌ها (Releases)](https://github.com/harad896-cyber/offline-shop-manager/releases) را باز کنید و فایل **offline-shop-manager.apk** را از آخرین نسخه دریافت کنید.
 
-اگر لینک مستقیم باز نشد، وارد بخش Releases شوید و فایل `offline-shop-manager.apk` را انتخاب کنید.
+> لینک دانلود بالا همیشه به آخرین نسخهٔ موفق منتشرشده اشاره می‌کند. تا وقتی ساخت APK با موفقیت تمام نشود، نسخهٔ جدیدی منتشر نمی‌شود.
 
-## وضعیت ساخت نسخه
+## وضعیت ساخت و نسخه‌ها
 
-[مشاهدهٔ اجرای ساخت APK در GitHub Actions](https://github.com/harad896-cyber/offline-shop-manager/actions/workflows/android-apk.yml)
+- [مشاهدهٔ وضعیت ساخت APK در GitHub Actions](https://github.com/harad896-cyber/offline-shop-manager/actions/workflows/android-apk.yml)
+- [مشاهدهٔ همهٔ نسخه‌ها و فایل‌های APK](https://github.com/harad896-cyber/offline-shop-manager/releases)
 
-هر نسخه فقط پس از موفقیت تست‌ها و ساخت APK در بخش Releases منتشر می‌شود. اگر اجرای ساخت خطا بدهد، نسخهٔ جدیدی منتشر نخواهد شد و لینک دانلود به آخرین نسخهٔ موفق قبلی اشاره می‌کند.
-
-## ویژگی‌ها
+## امکانات
 
 - واحد پول افغانی (AFN) و تنظیم مقدار هر سیر
 - ثبت کالا، خرید، فروش و موجودی
@@ -24,4 +23,4 @@
 - ثبت وزن‌های کوچک با دقت اعشاری
 - پشتیبان‌گیری و بازیابی اطلاعات
 
-اطلاعات روزمره روی دستگاه ذخیره می‌شود و برای ثبت فروش و خرید به اینترنت نیاز نیست.
+اطلاعات روی دستگاه ذخیره می‌شود و ثبت خرید و فروش به اینترنت نیاز ندارد.
