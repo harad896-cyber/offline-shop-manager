@@ -175,7 +175,7 @@ Future<String?> chooseFundSource(BuildContext context,{required String title,Str
   return showDialog<String>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(
     title:Text(title),
     content:Column(mainAxisSize:MainAxisSize.min,children:[
-      RadioListTile<String>(value:'صندوق مغازه',groupValue:selected,title:const Text('صندوق مغازه'),subtitle:const Text('این مبلغ در موجودی صندوق حساب می‌شود.'),onChanged:(v)=>refresh(()=>selected=v!)),
+      RadioListTile<String>(value:'صندوق مغازه',groupValue:selected,title:const Text('صندوق دوکان'),subtitle:const Text('این مبلغ در موجودی صندوق دوکان حساب می‌شود.'),onChanged:(v)=>refresh(()=>selected=v!)),
       RadioListTile<String>(value:'پول شخصی',groupValue:selected,title:const Text('پول شخصی'),subtitle:const Text('در حساب طرف ثبت می‌شود، اما موجودی صندوق دوکان تغییر نمی‌کند.'),onChanged:(v)=>refresh(()=>selected=v!)),
     ]),
     actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,selected),child:const Text('تأیید منبع پول'))],
@@ -390,7 +390,7 @@ class _EntriesPageState extends State<EntriesPage> {
       return AlertDialog(title:Text('ثبت $type'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         DropdownButtonFormField<int>(value:selected,decoration:const InputDecoration(labelText:'انتخاب کالا'),items:products.map((x)=>DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']} (${x['unit']})'))).toList(),onChanged:(v){refresh(()=>selected=v);final x=products.firstWhere((e)=>e['id']==v);price.text='${x[type=='فروش'?'sell':'buy']}';}),
         if(type=='خرید') ...[
-          const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی مغازه / فروشنده',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh((){})),
+          const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی دوکان / فروشنده',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh((){})),
           if(customerSearch.text.isNotEmpty) ...suppliers.where((x)=>' ${x['name']} ${x['phone']??''}'.toLowerCase().contains(customerSearch.text.toLowerCase())).take(5).map((x)=>ListTile(dense:true,selected:selectedSupplier==x['id'],leading:const Icon(Icons.storefront_outlined),title:Text('${x['name']}'),subtitle:Text('${x['phone']??''}'),onTap:()=>refresh(()=>selectedSupplier=x['id'] as int))),
           if(selectedSupplier!=null) Align(alignment:Alignment.centerRight,child:TextButton(onPressed:()=>refresh(()=>selectedSupplier=null),child:Text('فروشنده: ${suppliers.firstWhere((x)=>x['id']==selectedSupplier)['name']} • حذف انتخاب'))),
           if(suppliers.isEmpty) const Text('برای ثبت حساب خرید، ابتدا فروشنده را در بخش حساب‌ها اضافه کنید.'),
@@ -610,7 +610,7 @@ class _CustomersPageState extends State<CustomersPage>{
  @override void dispose(){searchController.dispose();super.dispose();}
  Future<Map<String,double>> totals(List<Map<String,Object?>> customers) async {double debtor=0,creditor=0;for(final x in customers){final b=await balance(x['id'] as int);if(b>0)debtor+=b;else if(b<0)creditor+=b.abs();}return {'debtor':debtor,'creditor':creditor};}
  Future<double> balance(int id) async {final db=await ShopDb.instance.database;final r=await db.rawQuery("SELECT COALESCE((SELECT opening_balance FROM customers WHERE id=?),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE customer_id=? AND type='فروش'),0)-COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id=? AND type IN ('دریافت','برگشت')),0)+COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id=? AND type='پرداخت'),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='customer' AND account_id=?),0) AS b",[id,id,id,id,id]);return ((r.first['b'] as num?)??0).toDouble();}
- Future<void> form([Map<String,Object?>? x]) async {final n=TextEditingController(text:'${x?['name']??''}'),p=TextEditingController(text:'${x?['phone']??''}'),b=TextEditingController(text:'${x?['opening_balance']??x?['balance']??'0'}');final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text(x==null?'مشتری جدید':'ویرایش مشتری'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(n,'نام مشتری'),field(p,'شماره تماس (اختیاری)'),field(b,'مانده اول دوره (مثبت: مشتری بدهکار؛ منفی: مغازه بدهکار)',number:true)]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));if(ok==true&&n.text.trim().isNotEmpty){final db=await ShopDb.instance.database;final v={'name':n.text.trim(),'phone':p.text.trim(),'opening_balance':parseNum(b.text)??0.0};if(x==null){await db.insert('customers',v);}else{await db.update('customers',v,where:'id=?',whereArgs:[x['id']]);}setState((){});}}
+ Future<void> form([Map<String,Object?>? x]) async {final n=TextEditingController(text:'${x?['name']??''}'),p=TextEditingController(text:'${x?['phone']??''}'),b=TextEditingController(text:'${x?['opening_balance']??x?['balance']??'0'}');final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text(x==null?'مشتری جدید':'ویرایش مشتری'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(n,'نام مشتری'),field(p,'شماره تماس (اختیاری)'),field(b,'مانده اول دوره (مثبت: مشتری بدهکار؛ منفی: دوکان بدهکار)',number:true)]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));if(ok==true&&n.text.trim().isNotEmpty){final db=await ShopDb.instance.database;final v={'name':n.text.trim(),'phone':p.text.trim(),'opening_balance':parseNum(b.text)??0.0};if(x==null){await db.insert('customers',v);}else{await db.update('customers',v,where:'id=?',whereArgs:[x['id']]);}setState((){});}}
  Future<void> account(Map<String,Object?> customer) async { if(!mounted)return; await Navigator.of(context).push(MaterialPageRoute(builder:(_)=>CustomerAccountPage(customer:customer,onChanged:()=>setState((){})))); }
  Future<void> receive(Map<String,Object?> customer) async {final a=TextEditingController(),n=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت از ${customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(a,'مبلغ دریافتی (افغانی)',number:true),field(n,'توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت دریافت'))]));final amount=parseNum(a.text)??0;if(ok==true&&amount>0){final source=await chooseFundSource(context,title:'پول دریافتی از مشتری به کجا برود؟');if(source==null)return;final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();await db.transaction((t)async{final paymentId=await t.insert('customer_payments',{'customer_id':customer['id'],'amount':amount,'type':'دریافت','note':n.text,'created':created,'fund_source':source});if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'دریافت','amount':amount,'note':'دریافت از مشتری ${customer['name']} • ${n.text}','created':created});await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);}});setState((){});}}
  Future<void> receiveAny(List<Map<String,Object?>> customers) async {
@@ -764,7 +764,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
      DropdownMenuItem(value:'پرداخت',child:Text('پرداخت نقدی به مشتری')),
      DropdownMenuItem(value:'برگشت',child:Text('برگشت وجه فروش')),
     ],onChanged:(v)=>refresh(()=>direction=v??'دریافت')),
-    if(kind=='payment') DropdownButtonFormField<String>(value:fundSource,decoration:const InputDecoration(labelText:'منبع پول'),items:const [DropdownMenuItem(value:'صندوق مغازه',child:Text('صندوق مغازه (تغییر موجودی صندوق)')),DropdownMenuItem(value:'پول شخصی',child:Text('پول شخصی (بدون تغییر صندوق)'))],onChanged:(v)=>refresh(()=>fundSource=v??'صندوق مغازه')),
+    if(kind=='payment') DropdownButtonFormField<String>(value:fundSource,decoration:const InputDecoration(labelText:'منبع پول'),items:const [DropdownMenuItem(value:'صندوق مغازه',child:Text('صندوق دوکان (تغییر موجودی صندوق)')),DropdownMenuItem(value:'پول شخصی',child:Text('پول شخصی (بدون تغییر صندوق)'))],onChanged:(v)=>refresh(()=>fundSource=v??'صندوق مغازه')),
     if(kind=='adjustment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع اصلاح حساب'),items:const [
      DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مشتری')),
      DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مشتری')),
@@ -821,7 +821,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
   if(!mounted)return;
   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('سوابق تسویه حساب'),content:SizedBox(width:360,child:rows.isEmpty?const Text('هنوز تسویه‌ای ثبت نشده است'):ListView(shrinkWrap:true,children:rows.map((x){final b=(x['balance'] as num).toDouble();return ListTile(dense:true,leading:const Icon(Icons.history),title:Text(afghanDate(DateTime.parse(x['settled_at'].toString()))),subtitle:Text(b>0?'مانده بدهی مشتری':b<0?'مانده طلب مشتری':'حساب صفر شده'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(tooltip:'رسید تسویه',onPressed:()=>shareLedgerReceipt({'id':x['id'],'created':x['settled_at'],'kind':'adjustment','direction':b>=0?'increase':'decrease','amount':b.abs(),'note':x['note']},partyType:'مشتری',partyName:'${widget.customer['name']}'),icon:const Icon(Icons.receipt_long_outlined,size:19)),Text('${money.format(b.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:statusColor(b)))]));}).toList())),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن'))]));
  }
- String status(double b)=>b>0.005?'مشتری بدهکار است':b< -0.005?'مغازه به مشتری بدهکار است':'حساب تسویه است';
+ String status(double b)=>b>0.005?'مشتری بدهکار است':b< -0.005?'دوکان به مشتری بدهکار است':'حساب تسویه است';
  Color statusColor(double b)=>b>0.005?Colors.red:b< -0.005?Colors.green:Colors.blueGrey;
  Future<void> receive() async {
   final amount=TextEditingController(),note=TextEditingController();
@@ -882,7 +882,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
 class SuppliersPage extends StatefulWidget {const SuppliersPage({super.key});@override State<SuppliersPage> createState()=>_SuppliersPageState();}
 class _SuppliersPageState extends State<SuppliersPage>{
  Future<double> balance(int id) async {final db=await ShopDb.instance.database;final r=await db.rawQuery("SELECT COALESCE((SELECT opening_balance FROM suppliers WHERE id=?),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE supplier_id=? AND type='خرید'),0)-COALESCE((SELECT SUM(CASE WHEN type='دریافت' THEN -amount ELSE amount END) FROM supplier_payments WHERE supplier_id=?),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='supplier' AND account_id=?),0) AS b",[id,id,id,id]);return ((r.first['b'] as num?)??0).toDouble();}
- Future<void> form([Map<String,Object?>? x]) async {final n=TextEditingController(text:'${x?['name']??''}'),p=TextEditingController(text:'${x?['phone']??''}'),a=TextEditingController(text:'${x?['address']??''}'),b=TextEditingController(text:'${x?['opening_balance']??'0'}');final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text(x==null?'فروشنده / مغازه جدید':'ویرایش فروشنده'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[field(n,'نام مغازه یا فروشنده'),field(p,'شماره تماس (اختیاری)'),field(a,'آدرس یا محل خرید (اختیاری)'),field(b,'مانده اول دوره (مثبت: ما بدهکار؛ منفی: فروشنده بدهکار)',number:true)])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));if(ok==true&&n.text.trim().isNotEmpty){final db=await ShopDb.instance.database;final v={'name':n.text.trim(),'phone':p.text.trim(),'address':a.text.trim(),'opening_balance':parseNum(b.text)??0.0};if(x==null){await db.insert('suppliers',v);}else{await db.update('suppliers',v,where:'id=?',whereArgs:[x['id']]);}if(mounted)setState((){});}}
+ Future<void> form([Map<String,Object?>? x]) async {final n=TextEditingController(text:'${x?['name']??''}'),p=TextEditingController(text:'${x?['phone']??''}'),a=TextEditingController(text:'${x?['address']??''}'),b=TextEditingController(text:'${x?['opening_balance']??'0'}');final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text(x==null?'فروشنده / دوکان جدید':'ویرایش فروشنده'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[field(n,'نام دوکان یا فروشنده'),field(p,'شماره تماس (اختیاری)'),field(a,'آدرس یا محل خرید (اختیاری)'),field(b,'مانده اول دوره (مثبت: ما بدهکار؛ منفی: فروشنده بدهکار)',number:true)])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));if(ok==true&&n.text.trim().isNotEmpty){final db=await ShopDb.instance.database;final v={'name':n.text.trim(),'phone':p.text.trim(),'address':a.text.trim(),'opening_balance':parseNum(b.text)??0.0};if(x==null){await db.insert('suppliers',v);}else{await db.update('suppliers',v,where:'id=?',whereArgs:[x['id']]);}if(mounted)setState((){});}}
  Future<void> account(Map<String,Object?> supplier) async {await Navigator.push(context,MaterialPageRoute(builder:(_)=>SupplierAccountPage(supplier:supplier,onChanged:(){if(mounted)setState((){});})));if(mounted)setState((){});}
  Future<void> settleFromList(Map<String,Object?> supplier) async {
   final value=await balance(supplier['id'] as int);
@@ -926,8 +926,8 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
    title:const Text('ثبت بدهی یا طلب دستی'),
    content:Column(mainAxisSize:MainAxisSize.min,children:[
     DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع ثبت'),items:const [
-     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مغازه به فروشنده')),
-     DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مغازه از فروشنده')),
+     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی دوکان به فروشنده')),
+     DropdownMenuItem(value:'decrease',child:Text('افزایش طلب دوکان از فروشنده')),
     ],onChanged:(v)=>refresh(()=>direction=v??'increase')),
     field(amount,'مبلغ به افغانی',number:true),
     field(note,'علت / توضیحات (مثلاً خرید یا حساب قدیمی)')
@@ -1010,8 +1010,8 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
      DropdownMenuItem(value:'دریافت',child:Text('دریافت پول از فروشنده')),
     ],onChanged:(v)=>refresh(()=>direction=v??'پرداخت')),
     if(kind=='adjustment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع اصلاح حساب'),items:const [
-     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مغازه')),
-     DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مغازه')),
+     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی دوکان')),
+     DropdownMenuItem(value:'decrease',child:Text('افزایش طلب دوکان')),
     ],onChanged:(v)=>refresh(()=>direction=v??'increase')),
     field(amount,'مبلغ (افغانی)',number:true),field(note,'توضیحات')
    ]),
@@ -1138,7 +1138,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final data=await ShopDb.instance.createBackup();
       final bytes=Uint8List.fromList(utf8.encode(const JsonEncoder.withIndent('  ').convert(data)));
       final name='offline-shop-backup-${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2,'0')}-${DateTime.now().day.toString().padLeft(2,'0')}.json';
-      final path=await FilePicker.platform.saveFile(dialogTitle:'ذخیره نسخه پشتیبان مغازه',fileName:name,bytes:bytes,allowedExtensions:['json'],type:FileType.custom);
+      final path=await FilePicker.platform.saveFile(dialogTitle:'ذخیره نسخه پشتیبان دوکان',fileName:name,bytes:bytes,allowedExtensions:['json'],type:FileType.custom);
       if(mounted&&path!=null)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('نسخه پشتیبان ذخیره شد. فایل را در جای امن نگه دارید.')));
     } catch(e) {if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('ساخت پشتیبان ناموفق بود: $e')));}
     finally {if(mounted)setState(()=>backupBusy=false);}
@@ -1165,7 +1165,7 @@ class _SettingsPageState extends State<SettingsPage> {
     finally {if(mounted)setState(()=>backupBusy=false);}
   }
   @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
-    const Text('تنظیمات مغازه',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:12),
+    const Text('تنظیمات دوکان',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:12),
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Text('واحدها',style:TextStyle(fontWeight:FontWeight.bold)),const SizedBox(height:8),
       TextField(controller:seer,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'هر سیر چند گرم است؟',suffixText:'گرم')),
