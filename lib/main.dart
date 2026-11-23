@@ -37,7 +37,7 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 15, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 16, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
       await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
@@ -72,6 +72,7 @@ class ShopDb {
       if (oldVersion < 13) { await db.execute("ALTER TABLE supplier_payments ADD COLUMN type TEXT NOT NULL DEFAULT 'پرداخت'"); }
       if (oldVersion < 14) { await db.execute("UPDATE settings SET value='7000' WHERE key='seer_grams' AND value='1000'"); }
       if (oldVersion < 15) { await db.execute("ALTER TABLE customer_payments ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); await db.execute("ALTER TABLE supplier_payments ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); }
+      if (oldVersion < 16) { await db.execute("ALTER TABLE entries ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); }
     });
     return _db!;
   }
@@ -277,13 +278,15 @@ class _ProductsPageState extends State<ProductsPage> {
       if(stock<0||buyPrice<0||sellPrice<0||paidAmount<0||paidAmount>total||(unit=='کارتن'&&(int.tryParse(pieces.text.trim())??0)<=0)||(stock>0&&supplierId==null)){
         if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی، قیمت، فروشنده یا مبلغ پرداختی را بررسی کنید.')));return;
       }
+      var initialFundSource='صندوق مغازه';
+      if(stock>0&&paidAmount>0){final selectedSource=await chooseFundSource(context,title:'پول خرید اولیه کالا از کجا پرداخت شده؟');if(selectedSource==null)return;initialFundSource=selectedSource;}
       await db.transaction((t)async{
         final now=DateTime.now().toIso8601String();
         final id=await t.insert('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'pieces_per_carton':unit=='کارتن'?(int.tryParse(pieces.text.trim())??1):1,'updated':now});
         await t.insert('price_history',{'product_id':id,'buy':buyPrice,'sell':sellPrice,'changed':now});
         if(stock>0){
-          final entryId=await t.insert('entries',{'product_id':id,'product_name':n.text.trim(),'type':'خرید','qty':stock,'price':buyPrice,'total':total,'note':'موجودی اولیه کالا','created':now,'supplier_id':supplierId,'paid':paidAmount});
-          if(paidAmount>0){final cashId=await t.insert('cash',{'type':'برداشت','amount':paidAmount,'note':'پرداخت نقدی خرید اولیه • سند #'+entryId.toString(),'created':now});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
+          final entryId=await t.insert('entries',{'product_id':id,'product_name':n.text.trim(),'type':'خرید','qty':stock,'price':buyPrice,'total':total,'note':'موجودی اولیه کالا','created':now,'supplier_id':supplierId,'paid':paidAmount,'fund_source':initialFundSource});
+          if(paidAmount>0&&initialFundSource=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'برداشت','amount':paidAmount,'note':'پرداخت نقدی خرید اولیه • سند #'+entryId.toString(),'created':now});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
         }
       });
       widget.onChanged();if(mounted)setState((){});
@@ -420,11 +423,13 @@ class _EntriesPageState extends State<EntriesPage> {
       if(amount<=0||grossAmount<=0||tareGrams<0||(unitFactor>0&&tareGrams>=grossAmount*unitFactor)||unitPrice<0||paidAmount<0||paidAmount>total){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار، قیمت یا مبلغ نقدی معتبر نیست.')));return;} if(type=='خرید'&&selectedSupplier==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت خرید، فروشنده را انتخاب کنید.')));return;} if(type=='فروش'&&selectedCustomer==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت فروش ابتدا مشتری را انتخاب کنید.'),backgroundColor:Colors.red));return;}
       final currentStock=(x['stock'] as num).toDouble();
       if(type=='فروش'&&amount>currentStock){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی کالا کافی نیست.')));return;}
+      var purchaseFundSource='صندوق مغازه';
+      if(type=='خرید'&&paidAmount>0){final selectedSource=await chooseFundSource(context,title:'پول پرداختی خرید از کجا پرداخت شده؟');if(selectedSource==null)return;purchaseFundSource=selectedSource;}
       await db.transaction((t)async{
         final stock=currentStock+(type=='خرید'?amount:-amount);
         await t.update('products',{'stock':stock,'updated':DateTime.now().toIso8601String()},where:'id=?',whereArgs:[selected]);
-        final entryId=await t.insert('entries',{'product_id':selected,'product_name':x['name'],'type':type,'qty':amount,'price':unitPrice,'total':total,'note':[note.text.trim(),if(unitFactor>0&&tareGrams>0)'وزن ظرف: '+money.format(tareGrams)+' گرم'].where((v)=>v.isNotEmpty).join(' • '),'created':DateTime.now().toIso8601String(),'customer_id':type=='فروش'?selectedCustomer:null,'supplier_id':type=='خرید'?selectedSupplier:null,'paid':paidAmount});
-        if(paidAmount>0){final cashId=await t.insert('cash',{'type':type=='فروش'?'دریافت':'برداشت','amount':paidAmount,'note':'${type=='فروش'?'دریافت نقدی فروش':'پرداخت نقدی خرید'} • سند #$entryId','created':DateTime.now().toIso8601String()});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
+        final entryId=await t.insert('entries',{'product_id':selected,'product_name':x['name'],'type':type,'qty':amount,'price':unitPrice,'total':total,'note':[note.text.trim(),if(unitFactor>0&&tareGrams>0)'وزن ظرف: '+money.format(tareGrams)+' گرم'].where((v)=>v.isNotEmpty).join(' • '),'created':DateTime.now().toIso8601String(),'customer_id':type=='فروش'?selectedCustomer:null,'supplier_id':type=='خرید'?selectedSupplier:null,'paid':paidAmount,'fund_source':type=='خرید'?purchaseFundSource:'صندوق مغازه'});
+        if(paidAmount>0&&(type=='فروش'||purchaseFundSource=='صندوق مغازه')){final cashId=await t.insert('cash',{'type':type=='فروش'?'دریافت':'برداشت','amount':paidAmount,'note':'${type=='فروش'?'دریافت نقدی فروش':'پرداخت نقدی خرید'} • سند #$entryId','created':DateTime.now().toIso8601String()});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
       });
       widget.onChanged();setState((){});
     }
