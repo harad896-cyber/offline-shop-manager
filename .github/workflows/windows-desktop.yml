@@ -2,7 +2,7 @@ name: Build Windows Desktop
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/complete-shop-management]
     paths:
       - 'lib/**'
       - 'test/**'
