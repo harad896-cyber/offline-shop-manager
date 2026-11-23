@@ -476,6 +476,8 @@ class _EntriesPageState extends State<EntriesPage> {
     final qty=TextEditingController(text:'${x['qty']}'),price=TextEditingController(text:'${x['price']}'),note=TextEditingController(text:'${x['note']??''}'),paid=TextEditingController(text:'${x['paid']??0}');
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('ویرایش ${x['type']}'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[field(qty,'مقدار '+(x['product_unit']?.toString()??''),number:true),Wrap(spacing:5,children:quantityPresets(x['product_unit']?.toString()??'عدد',seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>qty.text=(p['value'] as double).toStringAsFixed(3))).toList()),field(price,'قیمت هر واحد',number:true),field(paid,x['type']=='فروش'?'مبلغ نقد دریافت‌شده هنگام فروش':'مبلغ نقد پرداخت‌شده هنگام خرید',number:true),field(note,'یادداشت')])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ذخیره'))]));
     if(ok!=true)return;final q=parseNum(qty.text)??0,pv=parseNum(price.text)??0,paidValue=parseNum(paid.text)??0;if(q<=0||pv<0||paidValue<0||paidValue>q*pv)return;
+    var editedFundSource='صندوق مغازه';
+    if(x['type']=='خرید'&&paidValue>0){final selectedSource=await chooseFundSource(context,title:'پول پرداختی خرید از کجا پرداخت شده؟',initial:'${x['fund_source']??'صندوق مغازه'}');if(selectedSource==null)return;editedFundSource=selectedSource;}
     final db=await ShopDb.instance.database;
     try { await db.transaction((t)async{
       final oldQty=(x['qty'] as num).toDouble();final delta=q-oldQty;final sign=x['type']=='خرید'?1.0:-1.0;
@@ -484,10 +486,11 @@ class _EntriesPageState extends State<EntriesPage> {
       final currentStock=(productRows.first['stock'] as num).toDouble();
       if(currentStock+delta*sign < -0.000001)throw StateError('موجودی کافی نیست؛ مقدار فروش را کاهش دهید.');
       await t.rawUpdate('UPDATE products SET stock=stock+? WHERE id=?',[delta*sign,x['product_id']]);
-      await t.update('entries',{'qty':q,'price':pv,'total':q*pv,'paid':paidValue,'note':note.text},where:'id=?',whereArgs:[x['id']]);
+      await t.update('entries',{'qty':q,'price':pv,'total':q*pv,'paid':paidValue,'note':note.text,'fund_source':x['type']=='خرید'?editedFundSource:'صندوق مغازه'},where:'id=?',whereArgs:[x['id']]);
       final cashId=x['cash_id'];
-      if(cashId!=null){if(paidValue>0){await t.update('cash',{'amount':paidValue},where:'id=?',whereArgs:[cashId]);}else{await t.delete('cash',where:'id=?',whereArgs:[cashId]);await t.update('entries',{'cash_id':null},where:'id=?',whereArgs:[x['id']]);}}
-      else if(paidValue>0){final newCashId=await t.insert('cash',{'type':x['type']=='فروش'?'دریافت':'برداشت','amount':paidValue,'note':'ثبت پرداخت ویرایش‌شده از سند #${x['id']}','created':x['created']});await t.update('entries',{'cash_id':newCashId},where:'id=?',whereArgs:[x['id']]);}
+      final affectsCash=paidValue>0&&(x['type']=='فروش'||editedFundSource=='صندوق مغازه');
+      if(cashId!=null){if(affectsCash){await t.update('cash',{'amount':paidValue,'type':x['type']=='فروش'?'دریافت':'برداشت'},where:'id=?',whereArgs:[cashId]);}else{await t.delete('cash',where:'id=?',whereArgs:[cashId]);await t.update('entries',{'cash_id':null},where:'id=?',whereArgs:[x['id']]);}}
+      else if(affectsCash){final newCashId=await t.insert('cash',{'type':x['type']=='فروش'?'دریافت':'برداشت','amount':paidValue,'note':'ثبت پرداخت ویرایش‌شده از سند #${x['id']}','created':x['created']});await t.update('entries',{'cash_id':newCashId},where:'id=?',whereArgs:[x['id']]);}
     }); } catch(e) { if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString().replaceFirst('Bad state: ','')))); return; }
     widget.onChanged();setState((){});
   }
