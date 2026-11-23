@@ -102,66 +102,58 @@ class ShopApp extends StatelessWidget {
 }
 class HomePage extends StatefulWidget { const HomePage({super.key}); @override State<HomePage> createState()=>_HomePageState(); }
 class _HomePageState extends State<HomePage> {
-  int tab=0,revision=0; void reload()=>setState(()=>revision++);
+  int tab=0,revision=0,financeSection=0; String entryType='فروش'; void reload()=>setState(()=>revision++);
   @override Widget build(BuildContext context) {
-    final pages=[Dashboard(key:ValueKey('d$revision')),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload),FinancePage(key:ValueKey('f$revision'),onChanged:reload),SettingsPage(key:ValueKey('s$revision'))];
+    final pages=[Dashboard(key:ValueKey('d$revision'),onOpenTab:(v)=>setState(()=>tab=v),onOpenFinance:(v)=>setState((){financeSection=v;tab=3;}),onOpenEntries:(v)=>setState((){entryType=v;tab=2;})),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload,initialType:entryType),FinancePage(key:ValueKey('f$revision'),onChanged:reload,initialSection:financeSection),SettingsPage(key:ValueKey('s$revision'))];
     return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت دوکان',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
   }
 }
 class Dashboard extends StatefulWidget {
-  const Dashboard({super.key});
-  @override State<Dashboard> createState()=>_DashboardState();
+ final ValueChanged<int> onOpenTab; final ValueChanged<int> onOpenFinance; final ValueChanged<String> onOpenEntries;
+ const Dashboard({super.key,required this.onOpenTab,required this.onOpenFinance,required this.onOpenEntries});
+ @override State<Dashboard> createState()=>_DashboardState();
 }
 class _DashboardState extends State<Dashboard> {
-  String period='امروز';
-  Future<Map<String,double>> stats() async {
-    final db=await ShopDb.instance.database;
-    final now=DateTime.now();
-    final today=DateTime(now.year,now.month,now.day);
-    final start=period=='هفته'?today.subtract(const Duration(days:6)):period=='ماه'?DateTime(now.year,now.month,1):today;
-    final end=today.add(const Duration(days:1));
-    Future<double> sum(String table,String column,String where,List<Object?> args) async {
-      final r=await db.rawQuery('SELECT COALESCE(SUM($column),0) AS total FROM $table WHERE $where',args);
-      return ((r.first['total'] as num?)??0).toDouble();
-    }
-    final from=start.toIso8601String(),to=end.toIso8601String();
-    final sales=await sum('entries','total',"type='فروش' AND created>=? AND created<?",[from,to]);
-    final purchases=await sum('entries','total',"type='خرید' AND created>=? AND created<?",[from,to]);
-    final received=await sum('cash','amount',"type='دریافت' AND created>=? AND created<?",[from,to]);
-    final paid=await sum('cash','amount',"type='برداشت' AND created>=? AND created<?",[from,to]);
-    final allReceived=await sum('cash','amount',"type='دریافت'",[]);
-    final allPaid=await sum('cash','amount',"type='برداشت'",[]);
-    final inventory=await db.rawQuery('SELECT COALESCE(SUM(stock*buy),0) AS value FROM products');
-    final stockValue=((inventory.first['value'] as num?)??0).toDouble();
-    final productCount=await db.rawQuery('SELECT COUNT(*) AS count FROM products');
-    return {'sales':sales,'purchases':purchases,'received':received,'paid':paid,'cash':allReceived-allPaid,'allReceived':allReceived,'allPaid':allPaid,'stockValue':stockValue,'products':((productCount.first['count'] as num?)??0).toDouble()};
-  }
-  Widget metric(String label,double value,IconData icon,Color color,{bool isMoney=true})=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[CircleAvatar(radius:18,backgroundColor:color.withOpacity(.10),child:Icon(icon,color:color,size:19)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(fontSize:11,color:Colors.blueGrey)),const SizedBox(height:4),Text(isMoney?'${money.format(value)} افغانی':money.format(value),style:const TextStyle(fontSize:15,fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis)]))])));
-  @override Widget build(BuildContext context)=>FutureBuilder<Map<String,double>>(future:stats(),builder:(c,s){
-    if(!s.hasData)return const Center(child:CircularProgressIndicator());
-    final v=s.data!;
-    return ListView(padding:const EdgeInsets.fromLTRB(12,10,12,20),children:[
-      Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xff087f5b),Color(0xff16a078)]),borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('موجودی فعلی صندوق دوکان',style:TextStyle(color:Colors.white70,fontSize:12)),
-        const SizedBox(height:5),Text('${money.format(v['cash'])} افغانی',style:const TextStyle(color:Colors.white,fontSize:27,fontWeight:FontWeight.bold)),
-        const SizedBox(height:4),Text('دریافت کل: ${money.format(v['allReceived'])}  •  پرداخت کل: ${money.format(v['allPaid'])}',style:const TextStyle(color:Colors.white70,fontSize:11))
-      ])),
-      const SizedBox(height:12),
-      SegmentedButton<String>(segments:const [ButtonSegment(value:'امروز',label:Text('امروز')),ButtonSegment(value:'هفته',label:Text('۷ روز')),ButtonSegment(value:'ماه',label:Text('این ماه'))],selected:{period},onSelectionChanged:(x)=>setState(()=>period=x.first)),
-      const SizedBox(height:8),
-      Text('گزارش ${period=='امروز'?'امروز':period=='هفته'?'هفت روز اخیر':'ماه جاری'}',style:const TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
-      metric('مجموع فروش',v['sales']!,Icons.trending_up,Colors.green),
-      metric('مجموع خرید',v['purchases']!,Icons.shopping_bag_outlined,Colors.blue),
-      metric('دریافت نقدی',v['received']!,Icons.call_received,Colors.teal),
-      metric('پرداخت و برداشت',v['paid']!,Icons.call_made,Colors.red),
-      const SizedBox(height:8),
-      const Text('وضعیت دوکان',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
-      metric('ارزش خرید موجودی کالا',v['stockValue']!,Icons.inventory_2_outlined,Colors.indigo),
-      metric('تعداد کالاها',v['products']!,Icons.category_outlined,Colors.blueGrey,isMoney:false),
-      const SizedBox(height:8),
-      const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('تمام مبلغ‌ها به افغانی است. گزارش‌ها از اسناد ثبت‌شده محاسبه می‌شوند و با ویرایش سند، جمع‌ها نیز خودکار اصلاح می‌شوند.',style:TextStyle(fontSize:11,color:Colors.blueGrey))))
-    ]);
-  });
+ String period='امروز';
+ Future<Map<String,double>> stats() async {
+  final db=await ShopDb.instance.database,now=DateTime.now(),today=DateTime(now.year,now.month,now.day);
+  final start=period=='هفته'?today.subtract(const Duration(days:6)):period=='ماه'?DateTime(now.year,now.month,1):today,end=today.add(const Duration(days:1));
+  Future<double> sum(String table,String column,String where,List<Object?> args) async {final r=await db.rawQuery('SELECT COALESCE(SUM($column),0) AS total FROM $table WHERE $where',args);return ((r.first['total'] as num?)??0).toDouble();}
+  final from=start.toIso8601String(),to=end.toIso8601String();
+  final sales=await sum('entries','total',"type='فروش' AND created>=? AND created<?",[from,to]),purchases=await sum('entries','total',"type='خرید' AND created>=? AND created<?",[from,to]);
+  final received=await sum('cash','amount',"type='دریافت' AND created>=? AND created<?",[from,to]),paid=await sum('cash','amount',"type='برداشت' AND created>=? AND created<?",[from,to]);
+  final allReceived=await sum('cash','amount',"type='دریافت'",[]),allPaid=await sum('cash','amount',"type='برداشت'",[]);
+  final inventory=await db.rawQuery('SELECT COALESCE(SUM(stock*buy),0) AS value FROM products'),productCount=await db.rawQuery('SELECT COUNT(*) AS count FROM products');
+  final cr=await db.rawQuery("SELECT COALESCE(SUM(opening_balance),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE type='فروش'),0)-COALESCE((SELECT SUM(amount) FROM customer_payments WHERE type IN ('دریافت','برگشت')),0)+COALESCE((SELECT SUM(amount) FROM customer_payments WHERE type='پرداخت'),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='customer'),0) AS balance FROM customers");
+  final sr=await db.rawQuery("SELECT COALESCE(SUM(opening_balance),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE type='خرید'),0)-COALESCE((SELECT SUM(CASE WHEN type='دریافت' THEN -amount ELSE amount END) FROM supplier_payments),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='supplier'),0) AS balance FROM suppliers");
+  final cb=((cr.first['balance'] as num?)??0).toDouble(),sb=((sr.first['balance'] as num?)??0).toDouble();
+  final pr=await db.rawQuery("SELECT COALESCE(SUM(e.total-(e.qty*COALESCE(p.buy,0))),0) AS value FROM entries e LEFT JOIN products p ON p.id=e.product_id WHERE e.type='فروش' AND e.created>=? AND e.created<?",[from,to]);
+  final inv=((inventory.first['value'] as num?)??0).toDouble();
+  return {'sales':sales,'purchases':purchases,'received':received,'paid':paid,'cash':allReceived-allPaid,'allReceived':allReceived,'allPaid':allPaid,'stockValue':inv,'products':((productCount.first['count'] as num?)??0).toDouble(),'customerDebt':cb>0?cb:0,'customerCredit':cb<0?cb.abs():0,'supplierDebt':sb>0?sb:0,'supplierCredit':sb<0?sb.abs():0,'profit':((pr.first['value'] as num?)??0).toDouble()};
+ }
+ Widget metric(String label,double value,IconData icon,Color color,{VoidCallback? onTap,bool isMoney=true,String? hint})=>Card(clipBehavior:Clip.antiAlias,child:InkWell(onTap:onTap,child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[CircleAvatar(radius:18,backgroundColor:color.withOpacity(.10),child:Icon(icon,color:color,size:19)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(fontSize:11,color:Colors.blueGrey)),const SizedBox(height:4),Text(isMoney?'${money.format(value)} افغانی':money.format(value),style:const TextStyle(fontSize:15,fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis),if(hint!=null)Text(hint,style:const TextStyle(fontSize:10,color:Colors.blueGrey))])),const Icon(Icons.chevron_left,color:Colors.blueGrey,size:18)]))));
+ @override Widget build(BuildContext context)=>FutureBuilder<Map<String,double>>(future:stats(),builder:(c,s){
+  if(!s.hasData)return const Center(child:CircularProgressIndicator());final v=s.data!;
+  return ListView(padding:const EdgeInsets.fromLTRB(12,10,12,20),children:[
+   InkWell(onTap:()=>widget.onOpenFinance(0),borderRadius:BorderRadius.circular(18),child:Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xff087f5b),Color(0xff16a078)]),borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('موجودی فعلی صندوق دوکان • لمس برای جزئیات صندوق',style:TextStyle(color:Colors.white70,fontSize:12)),const SizedBox(height:5),Text('${money.format(v['cash'])} افغانی',style:const TextStyle(color:Colors.white,fontSize:27,fontWeight:FontWeight.bold)),const SizedBox(height:4),Text('مجموع دریافت: ${money.format(v['allReceived'])}  •  مجموع برداشت: ${money.format(v['allPaid'])}',style:const TextStyle(color:Colors.white70,fontSize:11))]))),
+   const SizedBox(height:12),SegmentedButton<String>(segments:const [ButtonSegment(value:'امروز',label:Text('امروز')),ButtonSegment(value:'هفته',label:Text('۷ روز')),ButtonSegment(value:'ماه',label:Text('این ماه'))],selected:{period},onSelectionChanged:(x)=>setState(()=>period=x.first)),
+   const SizedBox(height:8),Text('گزارش ${period=='امروز'?'امروز':period=='هفته'?'هفت روز اخیر':'ماه جاری'} • برای دیدن فهرست، روی هر مورد بزنید',style:const TextStyle(fontSize:14,fontWeight:FontWeight.bold)),
+   metric('مجموع فروش',v['sales']!,Icons.trending_up,Colors.green,onTap:()=>widget.onOpenEntries('فروش')),
+   metric('مجموع خرید',v['purchases']!,Icons.shopping_bag_outlined,Colors.blue,onTap:()=>widget.onOpenEntries('خرید')),
+   metric('دریافت نقدی صندوق',v['received']!,Icons.call_received,Colors.teal,onTap:()=>widget.onOpenFinance(0)),
+   metric('برداشت از صندوق',v['paid']!,Icons.call_made,Colors.red,onTap:()=>widget.onOpenFinance(0)),
+   metric('سود تخمینی فروش',v['profit']!,Icons.account_balance,Colors.deepPurple,onTap:()=>widget.onOpenEntries('فروش'),hint:'فروش منهای قیمت خرید فعلی کالا'),
+   const SizedBox(height:8),const Text('حساب مشتریان و فروشندگان',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
+   metric('مشتریان بدهکار به دوکان',v['customerDebt']!,Icons.person_search,Colors.red,onTap:()=>widget.onOpenFinance(1)),
+   metric('طلب مشتریان از دوکان',v['customerCredit']!,Icons.person_outline,Colors.green,onTap:()=>widget.onOpenFinance(1)),
+   metric('بدهی دوکان به فروشندگان',v['supplierDebt']!,Icons.storefront,Colors.orange,onTap:()=>widget.onOpenFinance(2)),
+   metric('طلب دوکان از فروشندگان',v['supplierCredit']!,Icons.store,Colors.teal,onTap:()=>widget.onOpenFinance(2)),
+   const SizedBox(height:8),const Text('وضعیت دوکان',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
+   metric('ارزش خرید موجودی کالا',v['stockValue']!,Icons.inventory_2_outlined,Colors.indigo,onTap:()=>widget.onOpenTab(1)),
+   metric('تعداد کالاها',v['products']!,Icons.category_outlined,Colors.blueGrey,isMoney:false,onTap:()=>widget.onOpenTab(1)),
+   const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('تمام کارت‌ها بازشدنی هستند. سود نمایش‌داده‌شده تخمینی است و بر اساس قیمت خرید فعلی کالا محاسبه می‌شود؛ برای سود قطعی باید قیمت تمام‌شدهٔ هر سند محفوظ باشد.',style:TextStyle(fontSize:11,color:Colors.blueGrey))))
+  ]);
+ });
 }
 class StatCard extends StatelessWidget {
   final String title;final double value;final IconData icon;final Color color;final bool isMoney;
@@ -362,7 +354,7 @@ class _ProductsPageState extends State<ProductsPage> {
     ]);
   }));
 }
-class EntriesPage extends StatefulWidget {final VoidCallback onChanged;const EntriesPage({super.key,required this.onChanged});@override State<EntriesPage> createState()=>_EntriesPageState();}
+class EntriesPage extends StatefulWidget {final VoidCallback onChanged;final String initialType;const EntriesPage({super.key,required this.onChanged,this.initialType='فروش'});@override State<EntriesPage> createState()=>_EntriesPageState();}
 class _EntriesPageState extends State<EntriesPage> {
   String type='فروش';
   Future<List<Map<String,Object?>>> entryRows() async {
@@ -589,7 +581,7 @@ class _CashPageState extends State<CashPage> {
         final v=b.data!;
         return Padding(padding:const EdgeInsets.fromLTRB(8,8,8,4),child:Row(children:[
           Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مجموع دریافت نقدی',style:TextStyle(fontSize:11)),Text('${money.format(v['incoming'])} افغانی',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold))])))),
-          Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مجموع پرداخت نقدی',style:TextStyle(fontSize:11)),Text('${money.format(v['outgoing'])} افغانی',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold))])))),
+          Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مجموع برداشت از صندوق',style:TextStyle(fontSize:11)),Text('${money.format(v['outgoing'])} افغانی',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold))])))),
           Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(9),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('موجودی نقدی صندوق',style:TextStyle(fontSize:11)),Text('${money.format(v['balance'])} افغانی',style:const TextStyle(fontWeight:FontWeight.bold))]))))
         ]));
       }),
