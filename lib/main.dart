@@ -1101,11 +1101,13 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
 
 class FinancePage extends StatefulWidget {
  final VoidCallback onChanged;
- const FinancePage({super.key,required this.onChanged});
+ final int initialSection;
+ const FinancePage({super.key,required this.onChanged,this.initialSection=0});
  @override State<FinancePage> createState()=>_FinancePageState();
 }
 class _FinancePageState extends State<FinancePage> {
- int section=0;
+ late int section;
+ @override void initState(){super.initState();section=widget.initialSection;}
  @override Widget build(BuildContext context)=>Column(children:[
   Padding(padding:const EdgeInsets.fromLTRB(10,8,10,4),child:SegmentedButton<int>(segments:const [
    ButtonSegment(value:0,label:Text('صندوق'),icon:Icon(Icons.account_balance_wallet_outlined)),
