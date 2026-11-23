@@ -438,7 +438,7 @@ class _EntriesPageState extends State<EntriesPage> {
       'باقی‌مانده: ${money.format(total-paid)} افغانی',
       if('${x['note']??''}'.trim().isNotEmpty) 'یادداشت: ${x['note']}',
       'با تشکر',
-    ].join('\\n');
+    ].join('\n');
   }
   Future<void> showReceipt(Map<String,Object?> x) async {
     final text=receiptText(x);
