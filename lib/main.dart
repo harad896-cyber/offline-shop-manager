@@ -1179,11 +1179,35 @@ class _FinancePageState extends State<FinancePage> {
 class AccountsPage extends StatefulWidget {const AccountsPage({super.key});@override State<AccountsPage> createState()=>_AccountsPageState();}
 class _AccountsPageState extends State<AccountsPage>{bool suppliers=false;@override Widget build(BuildContext context)=>Column(children:[Padding(padding:const EdgeInsets.all(12),child:SegmentedButton<bool>(segments:const [ButtonSegment(value:false,label:Text('مشتریان'),icon:Icon(Icons.people_outline)),ButtonSegment(value:true,label:Text('فروشندگان'),icon:Icon(Icons.storefront_outlined))],selected:{suppliers},onSelectionChanged:(v)=>setState(()=>suppliers=v.first))),Expanded(child:suppliers?const SuppliersPage():const CustomersPage())]);}
 
+
+class BusinessReportsPage extends StatefulWidget {const BusinessReportsPage({super.key});@override State<BusinessReportsPage> createState()=>_BusinessReportsPageState();}
+class _BusinessReportsPageState extends State<BusinessReportsPage>{
+ String section='دفتر کل';
+ Future<List<Map<String,Object?>>> ledger() async {final db=await ShopDb.instance.database;return db.rawQuery("""
+ SELECT created, type AS kind, product_name AS title, total AS amount, COALESCE(note,'') AS note FROM entries
+ UNION ALL
+ SELECT c.created, 'صندوق: '||c.type AS kind, 'تراکنش صندوق' AS title, c.amount AS amount, COALESCE(c.note,'') AS note FROM cash c
+ WHERE NOT EXISTS(SELECT 1 FROM entries e WHERE e.cash_id=c.id) AND NOT EXISTS(SELECT 1 FROM customer_payments cp WHERE cp.cash_id=c.id) AND NOT EXISTS(SELECT 1 FROM supplier_payments sp WHERE sp.cash_id=c.id)
+ UNION ALL
+ SELECT cp.created, 'حساب مشتری: '||cp.type AS kind, cu.name AS title, cp.amount AS amount, COALESCE(cp.note,'') AS note FROM customer_payments cp LEFT JOIN customers cu ON cu.id=cp.customer_id
+ UNION ALL
+ SELECT sp.created, 'حساب فروشنده: '||sp.type AS kind, su.name AS title, sp.amount AS amount, COALESCE(sp.note,'') AS note FROM supplier_payments sp LEFT JOIN suppliers su ON su.id=sp.supplier_id
+ ORDER BY created DESC LIMIT 500
+ """);}
+ Future<List<Map<String,Object?>>> debtors() async {final db=await ShopDb.instance.database;final customers=await db.rawQuery("""SELECT 'مشتری' AS kind,name,phone,COALESCE(opening_balance,0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE customer_id=customers.id AND type='فروش'),0)-COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id=customers.id AND type IN ('دریافت','برگشت')),0)+COALESCE((SELECT SUM(amount) FROM customer_payments WHERE customer_id=customers.id AND type='پرداخت'),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='customer' AND account_id=customers.id),0) AS balance FROM customers""");final suppliers=await db.rawQuery("""SELECT 'فروشنده' AS kind,name,phone,COALESCE(opening_balance,0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE supplier_id=suppliers.id AND type='خرید'),0)-COALESCE((SELECT SUM(CASE WHEN type='دریافت' THEN -amount ELSE amount END) FROM supplier_payments WHERE supplier_id=suppliers.id),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='supplier' AND account_id=suppliers.id),0) AS balance FROM suppliers""");return [...customers,...suppliers].where((x)=>(x['balance'] as num).abs()>0.009).toList()..sort((a,b)=>((b['balance'] as num).abs()).compareTo(((a['balance'] as num).abs())));}
+ Future<List<Map<String,Object?>>> audit() async => (await ShopDb.instance.database).query('audit_logs',orderBy:'id DESC',limit:300);
+ @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('گزارش‌ها و دفتر حساب')),body:Column(children:[
+  Padding(padding:const EdgeInsets.all(10),child:SingleChildScrollView(scrollDirection:Axis.horizontal,child:SegmentedButton<String>(segments:const [ButtonSegment(value:'دفتر کل',label:Text('دفتر کل')),ButtonSegment(value:'بدهکاران',label:Text('حساب‌های باز')),ButtonSegment(value:'تاریخچه',label:Text('تاریخچه تغییرات'))],selected:{section},onSelectionChanged:(v)=>setState(()=>section=v.first)))),
+  Expanded(child:FutureBuilder<List<Map<String,Object?>>>(future:section=='دفتر کل'?ledger():section=='بدهکاران'?debtors():audit(),builder:(c,s){if(s.hasError)return Center(child:Text('گزارش بارگذاری نشد: ${s.error}'));if(!s.hasData)return const Center(child:CircularProgressIndicator());final rows=s.data!;if(rows.isEmpty)return const Center(child:Text('موردی برای نمایش نیست'));return ListView.separated(itemCount:rows.length,separatorBuilder:(_,__)=>const Divider(height:1),itemBuilder:(c,i){final x=rows[i];if(section=='دفتر کل'){final date=DateTime.tryParse('${x['created']}')??DateTime.now();return ListTile(dense:true,title:Text('${x['kind']} • ${x['title']}'),subtitle:Text('${afghanDate(date)}${'${x['note']??''}'.trim().isEmpty?'':'\n${x['note']}'}'),trailing:Text('${money.format(x['amount'])} افغانی',style:const TextStyle(fontWeight:FontWeight.bold)));}if(section=='بدهکاران'){final balance=(x['balance'] as num).toDouble();final isCustomer=x['kind']=='مشتری';final due=balance>0?(isCustomer?'مشتری بدهکار است':'دوکان به فروشنده بدهکار است'):(isCustomer?'دوکان به مشتری بدهکار است':'فروشنده بدهکار است');return ListTile(leading:Icon(isCustomer?Icons.person_outline:Icons.storefront_outlined),title:Text('${x['name']}'),subtitle:Text('${x['kind']} • ${x['phone']??''}\n$due'),isThreeLine:true,trailing:Text('${money.format(balance.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:balance>0?Colors.red:Colors.green)));}final date=DateTime.tryParse('${x['created']}')??DateTime.now();return ListTile(dense:true,leading:Icon(x['action']=='حذف'?Icons.delete_outline:x['action']=='ویرایش'?Icons.edit_outlined:Icons.history),title:Text('${x['table_name']} • ${x['action']} • #${x['record_id']}'),subtitle:Text('${x['summary']??''}\n${afghanDate(date)}'));});}))
+ ]));
+}
+
 class SettingsPage extends StatefulWidget {const SettingsPage({super.key});@override State<SettingsPage> createState()=>_SettingsPageState();}
 class _SettingsPageState extends State<SettingsPage> {
   final seer=TextEditingController();
   bool backupBusy=false;
   @override void initState(){super.initState();ShopDb.instance.database.then((db)=>db.query('settings',where:'key=?',whereArgs:['seer_grams']).then((r){if(r.isNotEmpty&&mounted)seer.text='${r.first['value']}';}));}
+  Future<void> openReports() async {await Navigator.push(context,MaterialPageRoute(builder:(_)=>const BusinessReportsPage()));}
   Future<void> exportBackup() async {
     setState(()=>backupBusy=true);
     try {
@@ -1224,6 +1248,7 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height:8),
       FilledButton(onPressed:()async{final grams=parseNum(seer.text)??0;if(grams<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار هر سیر باید بیشتر از صفر باشد.')));return;}await (await ShopDb.instance.database).update('settings',{'value':grams.toString()},where:'key=?',whereArgs:['seer_grams']);if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('تنظیم ذخیره شد')));},child:const Text('ذخیره تنظیمات'))
     ]))),
+    Card(child:ListTile(leading:const Icon(Icons.assessment_outlined),title:const Text('دفتر کل، بدهکاران و تاریخچه تغییرات'),subtitle:const Text('تمام گردش‌های دوکان، حساب‌های باز مشتریان و فروشندگان و ثبت ویرایش‌ها را ببینید.'),trailing:const Icon(Icons.chevron_left),onTap:openReports)),
     const Card(child:ListTile(leading:Icon(Icons.wifi_off),title:Text('حالت آفلاین'),subtitle:Text('ثبت کالا، خرید، فروش و صندوق بدون اینترنت ذخیره می‌شود.'))),
     const Card(child:ListTile(leading:Icon(Icons.currency_exchange),title:Text('واحد پول'),subtitle:Text('افغانی • مبلغ‌ها با اعداد انگلیسی نمایش داده می‌شوند.'))),
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
