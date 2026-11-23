@@ -444,7 +444,7 @@ class _EntriesPageState extends State<EntriesPage> {
     final text=receiptText(x);
     await showDialog<void>(context:context,builder:(c)=>AlertDialog(
       title:Text('رسید سند #${x['id']}'),
-      content:SingleChildScrollView(child:SelectableText(text,textDirection:TextDirection.rtl)),
+      content:SingleChildScrollView(child:SelectableText(text,textDirection:ui.TextDirection.rtl)),
       actions:[
         TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:text));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
         TextButton.icon(onPressed:()async{await Share.share(text,subject:'رسید مغازه');},icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
