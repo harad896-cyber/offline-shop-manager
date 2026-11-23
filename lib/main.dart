@@ -158,10 +158,19 @@ class ShopApp extends StatelessWidget {
 }
 class HomePage extends StatefulWidget { const HomePage({super.key}); @override State<HomePage> createState()=>_HomePageState(); }
 class _HomePageState extends State<HomePage> {
-  int tab=0,revision=0,financeSection=0; String entryType='فروش'; void reload()=>setState(()=>revision++);
+  int tab=0,revision=0,financeSection=0; String entryType='فروش'; DateTime? _lastBackPressed; void reload()=>setState(()=>revision++);
+  Future<bool> _confirmExit() async {
+    final now=DateTime.now();
+    if(_lastBackPressed==null || now.difference(_lastBackPressed!)>const Duration(seconds:2)){
+      _lastBackPressed=now;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای بستن برنامه، یک‌بار دیگر دکمه برگشت را بزنید.'),duration:Duration(seconds:2)));
+      return false;
+    }
+    return true;
+  }
   @override Widget build(BuildContext context) {
     final pages=[Dashboard(key:ValueKey('d$revision'),onOpenTab:(v)=>setState(()=>tab=v),onOpenFinance:(v)=>setState((){financeSection=v;tab=3;}),onOpenEntries:(v)=>setState((){entryType=v;tab=2;})),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload,initialType:entryType),FinancePage(key:ValueKey('f$revision'),onChanged:reload,initialSection:financeSection),SettingsPage(key:ValueKey('s$revision'))];
-    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت دوکان',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
+    return WillPopScope(onWillPop:_confirmExit,child:Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت دوکان',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')]))));
   }
 }
 class Dashboard extends StatefulWidget {
