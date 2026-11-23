@@ -39,7 +39,7 @@ class ShopDb {
     final base = await getDatabasesPath();
     _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 16, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
-      await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
+      await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER,fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
       await db.execute("CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'دریافت',fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')");
