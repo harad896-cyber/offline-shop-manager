@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
@@ -35,7 +37,7 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 13, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 14, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
       await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
@@ -47,7 +49,7 @@ class ShopDb {
       await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)');
       await db.execute('CREATE TABLE account_settlements(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,balance REAL NOT NULL,settled_at TEXT NOT NULL,note TEXT)');
       await db.execute('CREATE TABLE account_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,direction TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
-      await db.insert('settings', {'key':'seer_grams','value':'1000'});
+      await db.insert('settings', {'key':'seer_grams','value':'7000'});
     }, onUpgrade: (db, oldVersion, newVersion) async { if (oldVersion < 2) { await db.execute('ALTER TABLE entries ADD COLUMN customer_id INTEGER'); } if (oldVersion < 3) { await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)'); await db.execute('INSERT INTO price_history(product_id,buy,sell,changed) SELECT id,buy,sell,updated FROM products'); } if (oldVersion < 4) { await db.execute('ALTER TABLE entries ADD COLUMN paid REAL NOT NULL DEFAULT 0'); await db.execute('ALTER TABLE customers ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0'); await db.execute('CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)'); await db.execute('UPDATE customers SET opening_balance=-balance'); } if (oldVersion < 5) { await db.execute('ALTER TABLE entries ADD COLUMN supplier_id INTEGER'); await db.execute('CREATE TABLE suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,address TEXT,opening_balance REAL NOT NULL DEFAULT 0)'); await db.execute('CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');  } if (oldVersion < 6) {
       await db.execute('ALTER TABLE entries ADD COLUMN cash_id INTEGER');
       final oldEntries = await db.query('entries', where: 'paid > 0');
@@ -68,6 +70,7 @@ class ShopDb {
       if (oldVersion < 11) { await db.execute('CREATE TABLE account_settlements(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,balance REAL NOT NULL,settled_at TEXT NOT NULL,note TEXT)'); }
       if (oldVersion < 12) { await db.execute('CREATE TABLE account_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,direction TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)'); }
       if (oldVersion < 13) { await db.execute("ALTER TABLE supplier_payments ADD COLUMN type TEXT NOT NULL DEFAULT 'پرداخت'"); }
+      if (oldVersion < 14) { await db.execute("UPDATE settings SET value='7000' WHERE key='seer_grams' AND value='1000'"); }
     });
     return _db!;
   }
@@ -174,30 +177,53 @@ Future<double> configuredSeerGrams() async {
 double gramsPerUnit(String unit, double seerGrams) {
   final u = unit.trim().toLowerCase();
   if (u.contains('کیلو') || u == 'kg' || u == 'kilogram') return 1000;
+  if (u.contains('چارک')) return seerGrams/4;
+  if (u.contains('نیم سیر') || u.contains('نیم‌سیر')) return seerGrams/2;
   if (u.contains('سیر') || u == 'seer' || u == 'sir') return seerGrams;
   if (u.contains('گرم') || u == 'g' || u == 'gram') return 1;
   return 0;
 }
 List<Map<String,Object>> quantityPresets(String unit, double seerGrams) {
-  final factor = gramsPerUnit(unit, seerGrams);
-  if (factor <= 0) return [
-    {'label':'۱', 'value':1.0}, {'label':'۲', 'value':2.0},
-    {'label':'۵', 'value':5.0}, {'label':'۱۰', 'value':10.0},
+  final u=unit.trim();
+  if(u.contains('کیلو') || u=='kg') return [
+    {'label':'¼ کیلو','value':0.25},{'label':'نیم کیلو','value':0.5},
+    {'label':'۱ کیلو','value':1.0},{'label':'۱٫۵ کیلو','value':1.5},
+    {'label':'۲ کیلو','value':2.0},{'label':'۳ کیلو','value':3.0},
+    {'label':'۵ کیلو','value':5.0},{'label':'۱۰ کیلو','value':10.0},
   ];
-  final options = <Map<String,Object>>[
-    {'label':'۱۰ گرم', 'grams':10.0}, {'label':'۲۰ گرم', 'grams':20.0},
-    {'label':'۵۰ گرم', 'grams':50.0}, {'label':'۱۰۰ گرم', 'grams':100.0},
-    {'label':'۲۵۰ گرم', 'grams':250.0}, {'label':'نیم کیلو', 'grams':500.0},
-    {'label':'۱ کیلو', 'grams':1000.0}, {'label':'۱٫۵ کیلو', 'grams':1500.0}, {'label':'۲ کیلو', 'grams':2000.0},
-    {'label':'نیم سیر', 'grams':seerGrams/2}, {'label':'۱ سیر', 'grams':seerGrams}, {'label':'۱٫۵ سیر', 'grams':1.5 * seerGrams}, {'label':'۲ سیر', 'grams':2 * seerGrams},
-    {'label':'۱ کیلو و ۱ سیر', 'grams':1000.0 + seerGrams},
+  if(u.contains('نیم سیر') || u.contains('نیم‌سیر')) return [
+    {'label':'نیم سیر','value':1.0},{'label':'۱ سیر','value':2.0},
+    {'label':'۱٫۵ سیر','value':3.0},{'label':'۲ سیر','value':4.0},
+    {'label':'۳ سیر','value':6.0},{'label':'۴ سیر','value':8.0},
   ];
-  return options.map((e)=>{'label':e['label']!, 'value':(e['grams'] as double)/factor}).toList();
+  if(u.contains('چارک')) return [
+    {'label':'¼ سیر','value':1.0},{'label':'نیم سیر','value':2.0},
+    {'label':'۱ سیر','value':4.0},{'label':'۱٫۵ سیر','value':6.0},
+    {'label':'۲ سیر','value':8.0},
+  ];
+  if(u.contains('سیر') || u=='seer' || u=='sir') return [
+    {'label':'¼ سیر','value':0.25},{'label':'نیم سیر','value':0.5},
+    {'label':'۱ سیر','value':1.0},{'label':'۱٫۵ سیر','value':1.5},
+    {'label':'۲ سیر','value':2.0},{'label':'۳ سیر','value':3.0},
+    {'label':'۴ سیر','value':4.0},
+  ];
+  if(u.contains('گرم') || u=='g' || u=='gram') return [
+    {'label':'۱۰ گرم','value':10.0},{'label':'۲۰ گرم','value':20.0},
+    {'label':'۵۰ گرم','value':50.0},{'label':'۱۰۰ گرم','value':100.0},
+    {'label':'۲۵۰ گرم','value':250.0},{'label':'۵۰۰ گرم','value':500.0},
+    {'label':'۷۵۰ گرم','value':750.0},{'label':'۱۰۰۰ گرم','value':1000.0},
+    {'label':'۲ کیلو','value':2000.0},
+  ];
+  return [
+    {'label':'۱','value':1.0},{'label':'۲','value':2.0},
+    {'label':'۵','value':5.0},{'label':'۱۰','value':10.0},
+    {'label':'۲۰','value':20.0},{'label':'۵۰','value':50.0},
+  ];
 }
 
 class ProductsPage extends StatefulWidget {final VoidCallback onChanged;const ProductsPage({super.key,required this.onChanged});@override State<ProductsPage> createState()=>_ProductsPageState();}
 class _ProductsPageState extends State<ProductsPage> {
-  final units = const ['کیلوگرم','کیلو','سیر','گرم','عدد','بسته','کارتن'];
+  final units = const ['کیلوگرم','سیر','نیم سیر','چارک','گرم','عدد','بسته','کارتن'];
   String cleanQty(double v){final s=v.toStringAsFixed(8);return s.contains('.')?s.replaceFirst(RegExp(r'0+$'),'').replaceFirst(RegExp(r'\.$'),''):s;}
   Future<List<Map<String,Object?>>> productRows() async {
     final db=await ShopDb.instance.database;
@@ -213,6 +239,8 @@ class _ProductsPageState extends State<ProductsPage> {
       final buyPrice=parseNum(b.text)??0, sellPrice=parseNum(s.text)??0, stock=parseNum(q.text)??0;
       return AlertDialog(title:const Text('افزودن کالای جدید'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         field(n,'نام کالا'),
+        Align(alignment:Alignment.centerRight,child:Text('نام‌های آماده (برای پرکردن سریع)',style:TextStyle(fontSize:11,color:Theme.of(context).colorScheme.onSurfaceVariant))),
+        Wrap(spacing:6,children:['شفتالو','وارزی'].map((name)=>ActionChip(label:Text(name),onPressed:()=>refresh(()=>n.text=name))).toList()),
         DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'واحد اصلی کالا'),items:units.map((u)=>DropdownMenuItem(value:u,child:Text(u))).toList(),onChanged:(v)=>refresh(()=>unit=v??unit)),
         if(unit=='کارتن') field(pieces,'تعداد عدد داخل هر کارتن',number:true),
         const SizedBox(height:8),TextField(controller:q,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'موجودی اولیه',border:OutlineInputBorder())),
@@ -389,6 +417,42 @@ class _EntriesPageState extends State<EntriesPage> {
     }
   }
 
+  String receiptText(Map<String,Object?> x) {
+    final sale=x['type']=='فروش';
+    final created=DateTime.tryParse('${x['created']}')??DateTime.now();
+    final total=(x['total'] as num? ?? 0).toDouble();
+    final paid=(x['paid'] as num? ?? 0).toDouble();
+    final qty=(x['qty'] as num? ?? 0).toDouble();
+    final price=(x['price'] as num? ?? 0).toDouble();
+    final party=x[sale?'customer_name':'supplier_name']?.toString();
+    return [
+      'رسید ${sale?'فروش':'خرید'} مغازه',
+      'شماره سند: ${x['id']}',
+      'تاریخ: ${afghanDate(created)}',
+      if(party!=null&&party.isNotEmpty) '${sale?'مشتری':'فروشنده'}: $party',
+      'کالا: ${x['product_name']}',
+      'مقدار: ${money.format(qty)} ${x['product_unit']??''}',
+      'قیمت واحد: ${money.format(price)} افغانی',
+      'مجموع: ${money.format(total)} افغانی',
+      'پرداخت‌شده: ${money.format(paid)} افغانی',
+      'باقی‌مانده: ${money.format(total-paid)} افغانی',
+      if('${x['note']??''}'.trim().isNotEmpty) 'یادداشت: ${x['note']}',
+      'با تشکر',
+    ].join('\\n');
+  }
+  Future<void> showReceipt(Map<String,Object?> x) async {
+    final text=receiptText(x);
+    await showDialog<void>(context:context,builder:(c)=>AlertDialog(
+      title:Text('رسید سند #${x['id']}'),
+      content:SingleChildScrollView(child:SelectableText(text,textDirection:TextDirection.rtl)),
+      actions:[
+        TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:text));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
+        TextButton.icon(onPressed:()async{await Share.share(text,subject:'رسید مغازه');},icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
+        FilledButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن')),
+      ],
+    ));
+  }
+
   Future<void> editEntry(Map<String,Object?> x) async {
     final seerGrams=await configuredSeerGrams();
     final qty=TextEditingController(text:'${x['qty']}'),price=TextEditingController(text:'${x['price']}'),note=TextEditingController(text:'${x['note']??''}'),paid=TextEditingController(text:'${x['paid']??0}');
@@ -444,7 +508,10 @@ class _EntriesPageState extends State<EntriesPage> {
           Column(crossAxisAlignment:CrossAxisAlignment.end,mainAxisAlignment:MainAxisAlignment.center,children:[
             Text('${money.format(total)}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.green:Colors.blue,fontSize:13)),
             const Text('افغانی',style:TextStyle(fontSize:9,color:Colors.blueGrey)),
-            if(!adjustment)IconButton(visualDensity:VisualDensity.compact,constraints:const BoxConstraints.tightFor(width:34,height:34),tooltip:'ویرایش سند',onPressed:()=>editEntry(x),icon:const Icon(Icons.edit_outlined,size:18))
+            if(!adjustment)Row(mainAxisSize:MainAxisSize.min,children:[
+              IconButton(visualDensity:VisualDensity.compact,constraints:const BoxConstraints.tightFor(width:32,height:32),tooltip:'مشاهده و اشتراک رسید',onPressed:()=>showReceipt(x),icon:const Icon(Icons.receipt_long_outlined,size:17)),
+              IconButton(visualDensity:VisualDensity.compact,constraints:const BoxConstraints.tightFor(width:32,height:32),tooltip:'ویرایش سند',onPressed:()=>editEntry(x),icon:const Icon(Icons.edit_outlined,size:17)),
+            ])
           ])
         ])));
       })),
