@@ -677,6 +677,47 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
    widget.onChanged();if(mounted)setState((){});
   }
  }
+ Future<String> ledgerReceiptText(Map<String,Object?> e,{required String partyType,required String partyName}) async {
+  final created=DateTime.tryParse('${e['created']}')??DateTime.now();
+  final kind=e['kind'];
+  final isItem=kind=='sale'||kind=='purchase';
+  final itemTotal=(e['total'] as num?)?.toDouble()??0;
+  final paid=(e['paid'] as num?)?.toDouble()??0;
+  final amount=(e['amount'] as num?)?.toDouble()??0;
+  final title=kind=='sale'?'فاکتور فروش':kind=='purchase'?'فاکتور خرید':kind=='adjustment'?'رسید اصلاح حساب':'رسید دریافت و پرداخت';
+  return [
+   'فروشگاه',
+   title,
+   'شماره سند: ${e['id']}',
+   'تاریخ: ${afghanDate(created)}',
+   '$partyType: $partyName',
+   if(isItem)'کالا: ${e['title']}',
+   if(isItem)'مقدار: ${money.format(e['qty'])} ${e['unit']??''}',
+   if(isItem)'قیمت واحد: ${money.format(e['price'])} افغانی',
+   if(isItem)'مجموع: ${money.format(itemTotal)} افغانی',
+   if(isItem)'پرداخت‌شده: ${money.format(paid)} افغانی',
+   if(isItem)'باقی‌مانده: ${money.format(itemTotal-paid)} افغانی',
+   if(!isItem)'نوع گردش: ${kind=='adjustment'?(e['direction']=='increase'?'افزایش بدهی':'افزایش طلب'):e['direction']??e['type']??''}',
+   if(!isItem)'مبلغ: ${money.format(amount)} افغانی',
+   if(!isItem)'منبع پول: ${e['fund_source']??'صندوق مغازه'}',
+   if('${e['note']??''}'.trim().isNotEmpty)'توضیحات: ${e['note']}',
+   'واحد پول: افغانی (AFN)',
+   'با تشکر'
+  ].join('\n');
+ }
+ Future<void> shareLedgerReceipt(Map<String,Object?> e,{required String partyType,required String partyName}) async {
+  final receipt=await ledgerReceiptText(e,partyType:partyType,partyName:partyName);
+  if(!mounted)return;
+  await showDialog<void>(context:context,builder:(c)=>AlertDialog(
+   title:const Text('رسید و فاکتور'),
+   content:SingleChildScrollView(child:SelectableText(receipt,textDirection:ui.TextDirection.rtl)),
+   actions:[
+    TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:receipt));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
+    TextButton.icon(onPressed:()=>Share.share(receipt,subject:'رسید فروشگاه'),icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
+    FilledButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن'))
+   ]
+  ));
+ }
  Future<void> editLedgerEvent(Map<String,Object?> e) async {
   final kind=e['kind'];
   String direction=(kind=='adjustment'?e['direction']:e['direction']??'دریافت').toString();
@@ -790,7 +831,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
      if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:statusColor(opening)))));}
      final e=events[events.length-1-index],sale=e['kind']=='sale',incoming=e['direction']=='دریافت',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),created=DateTime.parse(e['created'].toString());
      final date=afghanDate(created);
-     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:(incoming?Colors.green:Colors.orange)).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),title:Text(sale?'فروش کالا به مشتری: ${e['title']}':e['title'].toString(),style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع فروش: ${money.format(e['total'])} • نقد دریافت‌شده هنگام فروش: ${money.format(e['paid'])} • باقی‌مانده نسیه: ${money.format(delta)}\n$date':'${e['note']??''} • منبع: ${e['fund_source']??'صندوق مغازه'} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))]),if(!sale)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:(incoming?Colors.green:Colors.orange)).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),title:Text(sale?'فروش کالا به مشتری: ${e['title']}':e['title'].toString(),style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع فروش: ${money.format(e['total'])} • نقد دریافت‌شده هنگام فروش: ${money.format(e['paid'])} • باقی‌مانده نسیه: ${money.format(delta)}\n$date':'${e['note']??''} • منبع: ${e['fund_source']??'صندوق مغازه'} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(visualDensity:VisualDensity.compact,tooltip:'کپی یا اشتراک رسید',onPressed:()=>shareLedgerReceipt(e,partyType:'مشتری',partyName:'${widget.customer['name']}'),icon:const Icon(Icons.receipt_long_outlined,size:20)),Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))]),if(!sale)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
     })),
    ]);
   })
@@ -874,6 +915,47 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
   }
  }
  
+ Future<String> ledgerReceiptText(Map<String,Object?> e,{required String partyType,required String partyName}) async {
+  final created=DateTime.tryParse('${e['created']}')??DateTime.now();
+  final kind=e['kind'];
+  final isItem=kind=='sale'||kind=='purchase';
+  final itemTotal=(e['total'] as num?)?.toDouble()??0;
+  final paid=(e['paid'] as num?)?.toDouble()??0;
+  final amount=(e['amount'] as num?)?.toDouble()??0;
+  final title=kind=='sale'?'فاکتور فروش':kind=='purchase'?'فاکتور خرید':kind=='adjustment'?'رسید اصلاح حساب':'رسید دریافت و پرداخت';
+  return [
+   'فروشگاه',
+   title,
+   'شماره سند: ${e['id']}',
+   'تاریخ: ${afghanDate(created)}',
+   '$partyType: $partyName',
+   if(isItem)'کالا: ${e['title']}',
+   if(isItem)'مقدار: ${money.format(e['qty'])} ${e['unit']??''}',
+   if(isItem)'قیمت واحد: ${money.format(e['price'])} افغانی',
+   if(isItem)'مجموع: ${money.format(itemTotal)} افغانی',
+   if(isItem)'پرداخت‌شده: ${money.format(paid)} افغانی',
+   if(isItem)'باقی‌مانده: ${money.format(itemTotal-paid)} افغانی',
+   if(!isItem)'نوع گردش: ${kind=='adjustment'?(e['direction']=='increase'?'افزایش بدهی':'افزایش طلب'):e['direction']??e['type']??''}',
+   if(!isItem)'مبلغ: ${money.format(amount)} افغانی',
+   if(!isItem)'منبع پول: ${e['fund_source']??'صندوق مغازه'}',
+   if('${e['note']??''}'.trim().isNotEmpty)'توضیحات: ${e['note']}',
+   'واحد پول: افغانی (AFN)',
+   'با تشکر'
+  ].join('\n');
+ }
+ Future<void> shareLedgerReceipt(Map<String,Object?> e,{required String partyType,required String partyName}) async {
+  final receipt=await ledgerReceiptText(e,partyType:partyType,partyName:partyName);
+  if(!mounted)return;
+  await showDialog<void>(context:context,builder:(c)=>AlertDialog(
+   title:const Text('رسید و فاکتور'),
+   content:SingleChildScrollView(child:SelectableText(receipt,textDirection:ui.TextDirection.rtl)),
+   actions:[
+    TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:receipt));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
+    TextButton.icon(onPressed:()=>Share.share(receipt,subject:'رسید فروشگاه'),icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
+    FilledButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن'))
+   ]
+  ));
+ }
  Future<void> editLedgerEvent(Map<String,Object?> e) async {
   final kind=e['kind'];
   String direction=(kind=='adjustment'?e['direction']:e['direction']??'پرداخت').toString();
@@ -970,7 +1052,7 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
     Expanded(child:ListView.builder(padding:const EdgeInsets.fromLTRB(10,2,10,90),itemCount:events.length+(v['opening']==0?0:1),itemBuilder:(context,index){
      if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:tint(opening)))));}
      final e=events[events.length-1-index],purchase=e['kind']=='purchase',incoming=e['direction']=='دریافت',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),date=afghanDate(DateTime.parse(e['created'].toString()));
-     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(purchase?Colors.red:Colors.green).withOpacity(.10),child:Icon(purchase?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:purchase?Colors.red:Colors.green)),title:Text(purchase?'خرید کالا از فروشنده: ${e['title']}':e['kind']=='adjustment'?(delta>0?'افزایش بدهی به فروشنده':'افزایش طلب از فروشنده'):incoming?'دریافت نقدی از فروشنده':'پرداخت نقدی به فروشنده',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(purchase?'مقدار: ${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع خرید: ${money.format(e['total'])} • نقد پرداخت‌شده هنگام خرید: ${money.format(e['paid'])} • باقی‌مانده بدهی: ${money.format(delta)}\n$date':'${e['note']??''} • منبع: ${e['fund_source']??'صندوق مغازه'} • $date\nمانده پس از پرداخت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:tint(running)))]),if(!purchase)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(purchase?Colors.red:Colors.green).withOpacity(.10),child:Icon(purchase?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:purchase?Colors.red:Colors.green)),title:Text(purchase?'خرید کالا از فروشنده: ${e['title']}':e['kind']=='adjustment'?(delta>0?'افزایش بدهی به فروشنده':'افزایش طلب از فروشنده'):incoming?'دریافت نقدی از فروشنده':'پرداخت نقدی به فروشنده',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(purchase?'مقدار: ${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع خرید: ${money.format(e['total'])} • نقد پرداخت‌شده هنگام خرید: ${money.format(e['paid'])} • باقی‌مانده بدهی: ${money.format(delta)}\n$date':'${e['note']??''} • منبع: ${e['fund_source']??'صندوق مغازه'} • $date\nمانده پس از پرداخت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(visualDensity:VisualDensity.compact,tooltip:'کپی یا اشتراک رسید',onPressed:()=>shareLedgerReceipt(e,partyType:'فروشنده',partyName:'${widget.supplier['name']}'),icon:const Icon(Icons.receipt_long_outlined,size:20)),Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:tint(running)))]),if(!purchase)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
     })),
    ]);
   })
