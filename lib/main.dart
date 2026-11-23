@@ -98,14 +98,14 @@ class ShopDb {
 }
 class ShopApp extends StatelessWidget {
   const ShopApp({super.key});
-  @override Widget build(BuildContext context)=>MaterialApp(debugShowCheckedModeBanner:false,title:'مدیریت مغازه',theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff087f5b)),scaffoldBackgroundColor:const Color(0xfff5f7f6)),home:const HomePage());
+  @override Widget build(BuildContext context)=>MaterialApp(debugShowCheckedModeBanner:false,title:'مدیریت دوکان',theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff087f5b)),scaffoldBackgroundColor:const Color(0xfff5f7f6)),home:const HomePage());
 }
 class HomePage extends StatefulWidget { const HomePage({super.key}); @override State<HomePage> createState()=>_HomePageState(); }
 class _HomePageState extends State<HomePage> {
   int tab=0,revision=0; void reload()=>setState(()=>revision++);
   @override Widget build(BuildContext context) {
     final pages=[Dashboard(key:ValueKey('d$revision')),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload),FinancePage(key:ValueKey('f$revision'),onChanged:reload),SettingsPage(key:ValueKey('s$revision'))];
-    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت مغازه',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
+    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت دوکان',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
   }
 }
 class Dashboard extends StatefulWidget {
@@ -142,7 +142,7 @@ class _DashboardState extends State<Dashboard> {
     final v=s.data!;
     return ListView(padding:const EdgeInsets.fromLTRB(12,10,12,20),children:[
       Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xff087f5b),Color(0xff16a078)]),borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('موجودی فعلی صندوق مغازه',style:TextStyle(color:Colors.white70,fontSize:12)),
+        const Text('موجودی فعلی صندوق دوکان',style:TextStyle(color:Colors.white70,fontSize:12)),
         const SizedBox(height:5),Text('${money.format(v['cash'])} افغانی',style:const TextStyle(color:Colors.white,fontSize:27,fontWeight:FontWeight.bold)),
         const SizedBox(height:4),Text('دریافت کل: ${money.format(v['allReceived'])}  •  پرداخت کل: ${money.format(v['allPaid'])}',style:const TextStyle(color:Colors.white70,fontSize:11))
       ])),
@@ -155,7 +155,7 @@ class _DashboardState extends State<Dashboard> {
       metric('دریافت نقدی',v['received']!,Icons.call_received,Colors.teal),
       metric('پرداخت و برداشت',v['paid']!,Icons.call_made,Colors.red),
       const SizedBox(height:8),
-      const Text('وضعیت مغازه',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
+      const Text('وضعیت دوکان',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
       metric('ارزش خرید موجودی کالا',v['stockValue']!,Icons.inventory_2_outlined,Colors.indigo),
       metric('تعداد کالاها',v['products']!,Icons.category_outlined,Colors.blueGrey,isMoney:false),
       const SizedBox(height:8),
@@ -176,7 +176,7 @@ Future<String?> chooseFundSource(BuildContext context,{required String title,Str
     title:Text(title),
     content:Column(mainAxisSize:MainAxisSize.min,children:[
       RadioListTile<String>(value:'صندوق مغازه',groupValue:selected,title:const Text('صندوق مغازه'),subtitle:const Text('این مبلغ در موجودی صندوق حساب می‌شود.'),onChanged:(v)=>refresh(()=>selected=v!)),
-      RadioListTile<String>(value:'پول شخصی',groupValue:selected,title:const Text('پول شخصی'),subtitle:const Text('در حساب طرف ثبت می‌شود، اما موجودی صندوق مغازه تغییر نمی‌کند.'),onChanged:(v)=>refresh(()=>selected=v!)),
+      RadioListTile<String>(value:'پول شخصی',groupValue:selected,title:const Text('پول شخصی'),subtitle:const Text('در حساب طرف ثبت می‌شود، اما موجودی صندوق دوکان تغییر نمی‌کند.'),onChanged:(v)=>refresh(()=>selected=v!)),
     ]),
     actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,selected),child:const Text('تأیید منبع پول'))],
   )));
@@ -267,7 +267,7 @@ class _ProductsPageState extends State<ProductsPage> {
         ])),
         const Divider(height:20),
         const Align(alignment:Alignment.centerRight,child:Text('منبع خرید موجودی اولیه',style:TextStyle(fontWeight:FontWeight.bold))),
-        DropdownButtonFormField<int>(value:supplierId,decoration:const InputDecoration(labelText:'از کدام مغازه / فروشنده خرید شده؟'),items:suppliers.map((x)=>DropdownMenuItem(value:x['id'] as int,child:Text(x['name'].toString()))).toList(),onChanged:(v)=>refresh(()=>supplierId=v)),
+        DropdownButtonFormField<int>(value:supplierId,decoration:const InputDecoration(labelText:'از کدام دوکان‌دار یا فروشنده خرید شده؟'),items:suppliers.map((x)=>DropdownMenuItem(value:x['id'] as int,child:Text(x['name'].toString()))).toList(),onChanged:(v)=>refresh(()=>supplierId=v)),
         if(suppliers.isEmpty) const Padding(padding:EdgeInsets.only(top:6),child:Text('ابتدا فروشنده را از بخش حساب‌ها ثبت کنید.',style:TextStyle(color:Colors.red,fontSize:12))),
         field(paid,'مبلغ پرداخت نقدی به فروشنده (خالی = تسویه کامل)',number:true),
       ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت کالا و خرید اولیه'))]);
@@ -444,7 +444,7 @@ class _EntriesPageState extends State<EntriesPage> {
     final price=(x['price'] as num? ?? 0).toDouble();
     final party=x[sale?'customer_name':'supplier_name']?.toString();
     return [
-      'رسید ${sale?'فروش':'خرید'} مغازه',
+      'رسید ${sale?'فروش':'خرید'} دوکان',
       'شماره سند: ${x['id']}',
       'تاریخ: ${afghanDate(created)}',
       if(party!=null&&party.isNotEmpty) '${sale?'مشتری':'فروشنده'}: $party',
@@ -465,7 +465,7 @@ class _EntriesPageState extends State<EntriesPage> {
       content:SingleChildScrollView(child:SelectableText(text,textDirection:ui.TextDirection.rtl)),
       actions:[
         TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:text));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
-        TextButton.icon(onPressed:()async{await Share.share(text,subject:'رسید مغازه');},icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
+        TextButton.icon(onPressed:()async{await Share.share(text,subject:'رسید دوکان');},icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
         FilledButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن')),
       ],
     ));
@@ -547,13 +547,13 @@ class _CashPageState extends State<CashPage> {
   Future<void> showCashReceipt(Map<String,Object?> x) async {
     final created=DateTime.tryParse('${x['created']}')??DateTime.now();
     final text=[
-      'فروشگاه',
+      'دوکان',
       'رسید تراکنش صندوق',
       'شماره سند: ${x['id']}',
       'تاریخ: ${afghanDate(created)}',
       'نوع تراکنش: ${x['type']}',
       'مبلغ: ${money.format(x['amount'])} افغانی',
-      'منبع: صندوق مغازه',
+      'منبع: صندوق دوکان',
       if('${x['note']??''}'.trim().isNotEmpty)'توضیحات: ${x['note']}',
       'واحد پول: افغانی (AFN)',
       'با تشکر'
@@ -694,7 +694,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
    title:const Text('ثبت بدهی یا طلب دستی'),
    content:Column(mainAxisSize:MainAxisSize.min,children:[
     DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع ثبت'),items:const [
-     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مشتری به مغازه')),
+     DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مشتری به دوکان')),
      DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مشتری از مغازه')),
     ],onChanged:(v)=>refresh(()=>direction=v??'increase')),
     field(amount,'مبلغ به افغانی',number:true),
@@ -718,7 +718,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
   final amount=(e['amount'] as num?)?.toDouble()??0;
   final title=kind=='sale'?'فاکتور فروش':kind=='purchase'?'فاکتور خرید':kind=='adjustment'?'رسید اصلاح حساب':'رسید دریافت و پرداخت';
   return [
-   'فروشگاه',
+   'دوکان',
    title,
    'شماره سند: ${e['id']}',
    'تاریخ: ${afghanDate(created)}',
@@ -745,7 +745,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
    content:SingleChildScrollView(child:SelectableText(receipt,textDirection:ui.TextDirection.rtl)),
    actions:[
     TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:receipt));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
-    TextButton.icon(onPressed:()=>Share.share(receipt,subject:'رسید فروشگاه'),icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
+    TextButton.icon(onPressed:()=>Share.share(receipt,subject:'رسید دوکان'),icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
     FilledButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن'))
    ]
   ));
@@ -964,7 +964,7 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
   final amount=(e['amount'] as num?)?.toDouble()??0;
   final title=kind=='sale'?'فاکتور فروش':kind=='purchase'?'فاکتور خرید':kind=='adjustment'?'رسید اصلاح حساب':'رسید دریافت و پرداخت';
   return [
-   'فروشگاه',
+   'دوکان',
    title,
    'شماره سند: ${e['id']}',
    'تاریخ: ${afghanDate(created)}',
@@ -991,7 +991,7 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
    content:SingleChildScrollView(child:SelectableText(receipt,textDirection:ui.TextDirection.rtl)),
    actions:[
     TextButton.icon(onPressed:(){Clipboard.setData(ClipboardData(text:receipt));ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('رسید کپی شد')));},icon:const Icon(Icons.copy),label:const Text('کپی')),
-    TextButton.icon(onPressed:()=>Share.share(receipt,subject:'رسید فروشگاه'),icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
+    TextButton.icon(onPressed:()=>Share.share(receipt,subject:'رسید دوکان'),icon:const Icon(Icons.share_outlined),label:const Text('اشتراک‌گذاری')),
     FilledButton(onPressed:()=>Navigator.pop(c),child:const Text('بستن'))
    ]
   ));
