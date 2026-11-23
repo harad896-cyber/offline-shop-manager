@@ -745,6 +745,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
  Future<void> editLedgerEvent(Map<String,Object?> e) async {
   final kind=e['kind'];
   String direction=(kind=='adjustment'?e['direction']:e['direction']??'دریافت').toString();
+  String fundSource=(e['fund_source']??'صندوق مغازه').toString();
   final amount=TextEditingController(text:'${e['amount']??''}');
   final note=TextEditingController(text:'${e['note']??''}');
   final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(
@@ -755,6 +756,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
      DropdownMenuItem(value:'پرداخت',child:Text('پرداخت نقدی به مشتری')),
      DropdownMenuItem(value:'برگشت',child:Text('برگشت وجه فروش')),
     ],onChanged:(v)=>refresh(()=>direction=v??'دریافت')),
+    if(kind=='payment') DropdownButtonFormField<String>(value:fundSource,decoration:const InputDecoration(labelText:'منبع پول'),items:const [DropdownMenuItem(value:'صندوق مغازه',child:Text('صندوق مغازه (تغییر موجودی صندوق)')),DropdownMenuItem(value:'پول شخصی',child:Text('پول شخصی (بدون تغییر صندوق)'))],onChanged:(v)=>refresh(()=>fundSource=v??'صندوق مغازه')),
     if(kind=='adjustment') DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'نوع اصلاح حساب'),items:const [
      DropdownMenuItem(value:'increase',child:Text('افزایش بدهی مشتری')),
      DropdownMenuItem(value:'decrease',child:Text('افزایش طلب مشتری')),
@@ -770,9 +772,16 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
     if(kind=='adjustment'){
      await t.update('account_adjustments',{'direction':direction,'amount':value,'note':note.text.trim()},where:'id=? AND account_type=? AND account_id=?',whereArgs:[e['id'],'customer',widget.customer['id']]);
     }else{
-     await t.update('customer_payments',{'type':direction,'amount':value,'note':note.text.trim()},where:'id=? AND customer_id=?',whereArgs:[e['id'],widget.customer['id']]);
      final cashId=e['cash_id'];
-     if(cashId!=null) await t.update('cash',{'type':direction=='دریافت'?'دریافت':'برداشت','amount':value,'note':'${direction=='دریافت'?'دریافت از مشتری':'پرداخت به مشتری'} ${widget.customer['name']} • ${note.text.trim()}'},where:'id=?',whereArgs:[cashId]);
+     await t.update('customer_payments',{'type':direction,'amount':value,'note':note.text.trim(),'fund_source':fundSource},where:'id=? AND customer_id=?',whereArgs:[e['id'],widget.customer['id']]);
+     if(fundSource=='صندوق مغازه'){
+      final cashValues={'type':direction=='دریافت'?'دریافت':'برداشت','amount':value,'note':'${direction=='دریافت'?'دریافت از مشتری':'پرداخت به مشتری'} ${widget.customer['name']} • ${note.text.trim()}'};
+      if(cashId!=null){await t.update('cash',cashValues,where:'id=?',whereArgs:[cashId]);}
+      else{final newCashId=await t.insert('cash',{...cashValues,'created':e['created']??DateTime.now().toIso8601String()});await t.update('customer_payments',{'cash_id':newCashId},where:'id=?',whereArgs:[e['id']]);}
+     }else{
+      if(cashId!=null)await t.delete('cash',where:'id=?',whereArgs:[cashId]);
+      await t.update('customer_payments',{'cash_id':null},where:'id=?',whereArgs:[e['id']]);
+     }
     }
    });
    widget.onChanged();if(mounted)setState((){});
@@ -983,6 +992,7 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
  Future<void> editLedgerEvent(Map<String,Object?> e) async {
   final kind=e['kind'];
   String direction=(kind=='adjustment'?e['direction']:e['direction']??'پرداخت').toString();
+  String fundSource=(e['fund_source']??'صندوق مغازه').toString();
   final amount=TextEditingController(text:'${e['amount']??''}');
   final note=TextEditingController(text:'${e['note']??''}');
   final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(
@@ -1007,9 +1017,16 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
     if(kind=='adjustment'){
      await t.update('account_adjustments',{'direction':direction,'amount':value,'note':note.text.trim()},where:'id=? AND account_type=? AND account_id=?',whereArgs:[e['id'],'supplier',supplierId]);
     }else{
-     await t.update('supplier_payments',{'type':direction,'amount':value,'note':note.text.trim()},where:'id=? AND supplier_id=?',whereArgs:[e['id'],supplierId]);
      final cashId=e['cash_id'];
-     if(cashId!=null) await t.update('cash',{'type':direction=='دریافت'?'دریافت':'برداشت','amount':value,'note':'${direction=='دریافت'?'دریافت از فروشنده':'پرداخت به فروشنده'} ${widget.supplier['name']} • ${note.text.trim()}'},where:'id=?',whereArgs:[cashId]);
+     await t.update('supplier_payments',{'type':direction,'amount':value,'note':note.text.trim(),'fund_source':fundSource},where:'id=? AND supplier_id=?',whereArgs:[e['id'],supplierId]);
+     if(fundSource=='صندوق مغازه'){
+      final cashValues={'type':direction=='دریافت'?'دریافت':'برداشت','amount':value,'note':'${direction=='دریافت'?'دریافت از فروشنده':'پرداخت به فروشنده'} ${widget.supplier['name']} • ${note.text.trim()}'};
+      if(cashId!=null){await t.update('cash',cashValues,where:'id=?',whereArgs:[cashId]);}
+      else{final newCashId=await t.insert('cash',{...cashValues,'created':e['created']??DateTime.now().toIso8601String()});await t.update('supplier_payments',{'cash_id':newCashId},where:'id=?',whereArgs:[e['id']]);}
+     }else{
+      if(cashId!=null)await t.delete('cash',where:'id=?',whereArgs:[cashId]);
+      await t.update('supplier_payments',{'cash_id':null},where:'id=?',whereArgs:[e['id']]);
+     }
     }
    });
    widget.onChanged();if(mounted)setState((){});
