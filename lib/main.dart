@@ -37,9 +37,9 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 16, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 17, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
-      await db.execute("CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER,fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')");
+      await db.execute("CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER,fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه',cost_price REAL NOT NULL DEFAULT 0)");
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
       await db.execute("CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'دریافت',fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')");
@@ -49,6 +49,9 @@ class ShopDb {
       await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)');
       await db.execute('CREATE TABLE account_settlements(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,balance REAL NOT NULL,settled_at TEXT NOT NULL,note TEXT)');
       await db.execute('CREATE TABLE account_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,direction TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
+      await db.execute('CREATE TABLE cash_closings(id INTEGER PRIMARY KEY AUTOINCREMENT,closing_date TEXT NOT NULL,opening_cash REAL NOT NULL,received REAL NOT NULL,withdrawn REAL NOT NULL,expected_cash REAL NOT NULL,counted_cash REAL NOT NULL,difference REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
+      await db.execute('CREATE TABLE stock_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,reason TEXT NOT NULL,cost_value REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
+      await db.execute('CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,record_id INTEGER,action TEXT NOT NULL,summary TEXT,created TEXT NOT NULL)');
       await db.insert('settings', {'key':'seer_grams','value':'7000'});
     }, onUpgrade: (db, oldVersion, newVersion) async { if (oldVersion < 2) { await db.execute('ALTER TABLE entries ADD COLUMN customer_id INTEGER'); } if (oldVersion < 3) { await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)'); await db.execute('INSERT INTO price_history(product_id,buy,sell,changed) SELECT id,buy,sell,updated FROM products'); } if (oldVersion < 4) { await db.execute('ALTER TABLE entries ADD COLUMN paid REAL NOT NULL DEFAULT 0'); await db.execute('ALTER TABLE customers ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0'); await db.execute('CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)'); await db.execute('UPDATE customers SET opening_balance=-balance'); } if (oldVersion < 5) { await db.execute('ALTER TABLE entries ADD COLUMN supplier_id INTEGER'); await db.execute('CREATE TABLE suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,address TEXT,opening_balance REAL NOT NULL DEFAULT 0)'); await db.execute('CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');  } if (oldVersion < 6) {
       await db.execute('ALTER TABLE entries ADD COLUMN cash_id INTEGER');
@@ -73,10 +76,38 @@ class ShopDb {
       if (oldVersion < 14) { await db.execute("UPDATE settings SET value='7000' WHERE key='seer_grams' AND value='1000'"); }
       if (oldVersion < 15) { await db.execute("ALTER TABLE customer_payments ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); await db.execute("ALTER TABLE supplier_payments ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); }
       if (oldVersion < 16) { await db.execute("ALTER TABLE entries ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); }
+      if (oldVersion < 17) {
+        await db.execute('ALTER TABLE entries ADD COLUMN cost_price REAL NOT NULL DEFAULT 0');
+        await db.execute("UPDATE entries SET cost_price=COALESCE((SELECT ph.buy FROM price_history ph WHERE ph.product_id=entries.product_id AND ph.changed<=entries.created ORDER BY ph.changed DESC,ph.id DESC LIMIT 1),(SELECT p.buy FROM products p WHERE p.id=entries.product_id),0) WHERE type='فروش'");
+        await db.execute('CREATE TABLE cash_closings(id INTEGER PRIMARY KEY AUTOINCREMENT,closing_date TEXT NOT NULL,opening_cash REAL NOT NULL,received REAL NOT NULL,withdrawn REAL NOT NULL,expected_cash REAL NOT NULL,counted_cash REAL NOT NULL,difference REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
+        await db.execute('CREATE TABLE stock_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,reason TEXT NOT NULL,cost_value REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
+        await db.execute('CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,record_id INTEGER,action TEXT NOT NULL,summary TEXT,created TEXT NOT NULL)');
+      }
+      await installAuditTriggers(db);
     });
     return _db!;
   }
-  static const backupTables = <String>['products','entries','cash','customers','customer_payments','suppliers','supplier_payments','settings','price_history','account_settlements','account_adjustments'];
+
+  Future<void> installAuditTriggers(DatabaseExecutor db) async {
+    const tables = <String,Map<String,String>>{
+      'entries': {'insert':"'نوع: '||NEW.type||' • کالا: '||NEW.product_name||' • مبلغ: '||NEW.total",'update':"'سند ویرایش شد • '||NEW.product_name||' • مبلغ: '||NEW.total",'delete':"'سند حذف شد • '||OLD.product_name||' • مبلغ: '||OLD.total"},
+      'cash': {'insert':"'نوع: '||NEW.type||' • مبلغ: '||NEW.amount",'update':"'مبلغ صندوق: '||OLD.amount||' ← '||NEW.amount",'delete':"'تراکنش صندوق حذف شد • مبلغ: '||OLD.amount"},
+      'products': {'insert':"'کالای جدید: '||NEW.name||' • موجودی: '||NEW.stock",'update':"'کالا: '||NEW.name||' • موجودی: '||OLD.stock||' ← '||NEW.stock",'delete':"'کالا حذف شد: '||OLD.name"},
+      'customer_payments': {'insert':"'مشتری • مبلغ: '||NEW.amount",'update':"'پرداخت مشتری ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'پرداخت مشتری حذف شد • '||OLD.amount"},
+      'supplier_payments': {'insert':"'فروشنده • مبلغ: '||NEW.amount",'update':"'پرداخت فروشنده ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'پرداخت فروشنده حذف شد • '||OLD.amount"},
+    };
+    for(final entry in tables.entries){
+      final table=entry.key;
+      for(final action in ['insert','update','delete']){
+        final isDelete=action=='delete';
+        final row=isDelete?'OLD':'NEW';
+        final summary=entry.value[action]!;
+        await db.execute("CREATE TRIGGER IF NOT EXISTS audit_${table}_${action} AFTER ${action.toUpperCase()} ON $table BEGIN INSERT INTO audit_logs(table_name,record_id,action,summary,created) VALUES('$table',$row.id,'${action=='insert'?'ثبت':action=='update'?'ویرایش':'حذف'}',$summary,datetime('now')); END");
+      }
+    }
+  }
+
+  static const backupTables = <String>['products','entries','cash','customers','customer_payments','suppliers','supplier_payments','settings','price_history','account_settlements','account_adjustments','cash_closings','stock_adjustments','audit_logs'];
   Future<Map<String,Object?>> createBackup() async {
     final db=await database; final data=<String,dynamic>{};
     for(final table in backupTables){data[table]=await db.query(table);}
@@ -85,7 +116,7 @@ class ShopDb {
   Future<void> restoreBackup(Map<String,dynamic> backup) async {
     if(backup['format']!='offline-shop-manager-backup'||backup['version']!=1||backup['tables'] is! Map) throw const FormatException('فایل پشتیبان معتبر نیست یا نسخه آن پشتیبانی نمی‌شود.');
     final tables=Map<String,dynamic>.from(backup['tables'] as Map);
-    for(final table in backupTables){if(tables[table] is! List){if(table=='account_adjustments'){tables[table]=<dynamic>[];}else{throw const FormatException('اطلاعات فایل پشتیبان کامل نیست.');}}}
+    for(final table in backupTables){if(tables[table] is! List){if(['account_adjustments','cash_closings','stock_adjustments','audit_logs'].contains(table)){tables[table]=<dynamic>[];}else{throw const FormatException('اطلاعات فایل پشتیبان کامل نیست.');}}}
     final db=await database;
     await db.transaction((txn) async {
       for(final table in backupTables.reversed){await txn.delete(table);}
@@ -127,7 +158,7 @@ class _DashboardState extends State<Dashboard> {
   final cr=await db.rawQuery("SELECT COALESCE(SUM(opening_balance),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE type='فروش'),0)-COALESCE((SELECT SUM(amount) FROM customer_payments WHERE type IN ('دریافت','برگشت')),0)+COALESCE((SELECT SUM(amount) FROM customer_payments WHERE type='پرداخت'),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='customer'),0) AS balance FROM customers");
   final sr=await db.rawQuery("SELECT COALESCE(SUM(opening_balance),0)+COALESCE((SELECT SUM(total-paid) FROM entries WHERE type='خرید'),0)-COALESCE((SELECT SUM(CASE WHEN type='دریافت' THEN -amount ELSE amount END) FROM supplier_payments),0)+COALESCE((SELECT SUM(CASE WHEN direction='increase' THEN amount ELSE -amount END) FROM account_adjustments WHERE account_type='supplier'),0) AS balance FROM suppliers");
   final cb=((cr.first['balance'] as num?)??0).toDouble(),sb=((sr.first['balance'] as num?)??0).toDouble();
-  final pr=await db.rawQuery("SELECT COALESCE(SUM(e.total-(e.qty*COALESCE(p.buy,0))),0) AS value FROM entries e LEFT JOIN products p ON p.id=e.product_id WHERE e.type='فروش' AND e.created>=? AND e.created<?",[from,to]);
+  final pr=await db.rawQuery("SELECT COALESCE(SUM(e.total-(e.qty*e.cost_price)),0) AS value FROM entries e WHERE e.type='فروش' AND e.created>=? AND e.created<?",[from,to]);
   final inv=((inventory.first['value'] as num?)??0).toDouble();
   return {'sales':sales,'purchases':purchases,'received':received,'paid':paid,'cash':allReceived-allPaid,'allReceived':allReceived,'allPaid':allPaid,'stockValue':inv,'products':((productCount.first['count'] as num?)??0).toDouble(),'customerDebt':cb>0?cb:0,'customerCredit':cb<0?cb.abs():0,'supplierDebt':sb>0?sb:0,'supplierCredit':sb<0?sb.abs():0,'profit':((pr.first['value'] as num?)??0).toDouble()};
  }
@@ -142,7 +173,7 @@ class _DashboardState extends State<Dashboard> {
    metric('مجموع خرید',v['purchases']!,Icons.shopping_bag_outlined,Colors.blue,onTap:()=>widget.onOpenEntries('خرید')),
    metric('دریافت نقدی صندوق',v['received']!,Icons.call_received,Colors.teal,onTap:()=>widget.onOpenFinance(0)),
    metric('برداشت از صندوق',v['paid']!,Icons.call_made,Colors.red,onTap:()=>widget.onOpenFinance(0)),
-   metric('سود تخمینی فروش',v['profit']!,Icons.account_balance,Colors.deepPurple,onTap:()=>widget.onOpenEntries('فروش'),hint:'فروش منهای قیمت خرید فعلی کالا'),
+   metric('سود ناخالص فروش',v['profit']!,Icons.account_balance,Colors.deepPurple,onTap:()=>widget.onOpenEntries('فروش'),hint:'بر اساس قیمت خرید ثبت‌شده هنگام فروش'),
    const SizedBox(height:8),const Text('حساب مشتریان و فروشندگان',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
    metric('مشتریان بدهکار به دوکان',v['customerDebt']!,Icons.person_search,Colors.red,onTap:()=>widget.onOpenFinance(1)),
    metric('طلب مشتریان از دوکان',v['customerCredit']!,Icons.person_outline,Colors.green,onTap:()=>widget.onOpenFinance(1)),
@@ -151,7 +182,7 @@ class _DashboardState extends State<Dashboard> {
    const SizedBox(height:8),const Text('وضعیت دوکان',style:TextStyle(fontSize:15,fontWeight:FontWeight.bold)),
    metric('ارزش خرید موجودی کالا',v['stockValue']!,Icons.inventory_2_outlined,Colors.indigo,onTap:()=>widget.onOpenTab(1)),
    metric('تعداد کالاها',v['products']!,Icons.category_outlined,Colors.blueGrey,isMoney:false,onTap:()=>widget.onOpenTab(1)),
-   const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('تمام کارت‌ها بازشدنی هستند. سود نمایش‌داده‌شده تخمینی است و بر اساس قیمت خرید فعلی کالا محاسبه می‌شود؛ برای سود قطعی باید قیمت تمام‌شدهٔ هر سند محفوظ باشد.',style:TextStyle(fontSize:11,color:Colors.blueGrey))))
+   const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('تمام کارت‌ها بازشدنی هستند. سود ناخالص فروش از قیمت خرید ذخیره‌شده در زمان ثبت هر فروش محاسبه می‌شود؛ هزینه‌های جانبی دوکان در این رقم شامل نیست.',style:TextStyle(fontSize:11,color:Colors.blueGrey))))
   ]);
  });
 }
@@ -277,7 +308,7 @@ class _ProductsPageState extends State<ProductsPage> {
         final id=await t.insert('products',{'name':n.text.trim(),'unit':unit,'stock':stock,'buy':buyPrice,'sell':sellPrice,'pieces_per_carton':unit=='کارتن'?(int.tryParse(pieces.text.trim())??1):1,'updated':now});
         await t.insert('price_history',{'product_id':id,'buy':buyPrice,'sell':sellPrice,'changed':now});
         if(stock>0){
-          final entryId=await t.insert('entries',{'product_id':id,'product_name':n.text.trim(),'type':'خرید','qty':stock,'price':buyPrice,'total':total,'note':'موجودی اولیه کالا','created':now,'supplier_id':supplierId,'paid':paidAmount,'fund_source':initialFundSource});
+          final entryId=await t.insert('entries',{'product_id':id,'product_name':n.text.trim(),'type':'خرید','qty':stock,'price':buyPrice,'total':total,'note':'موجودی اولیه کالا','created':now,'supplier_id':supplierId,'paid':paidAmount,'fund_source':initialFundSource,'cost_price':buyPrice});
           if(paidAmount>0&&initialFundSource=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'برداشت','amount':paidAmount,'note':'پرداخت نقدی خرید اولیه • سند #'+entryId.toString(),'created':now});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
         }
       });
@@ -420,7 +451,7 @@ class _EntriesPageState extends State<EntriesPage> {
       await db.transaction((t)async{
         final stock=currentStock+(type=='خرید'?amount:-amount);
         await t.update('products',{'stock':stock,'updated':DateTime.now().toIso8601String()},where:'id=?',whereArgs:[selected]);
-        final entryId=await t.insert('entries',{'product_id':selected,'product_name':x['name'],'type':type,'qty':amount,'price':unitPrice,'total':total,'note':[note.text.trim(),if(unitFactor>0&&tareGrams>0)'وزن ظرف: '+money.format(tareGrams)+' گرم'].where((v)=>v.isNotEmpty).join(' • '),'created':DateTime.now().toIso8601String(),'customer_id':type=='فروش'?selectedCustomer:null,'supplier_id':type=='خرید'?selectedSupplier:null,'paid':paidAmount,'fund_source':type=='خرید'?purchaseFundSource:'صندوق مغازه'});
+        final entryId=await t.insert('entries',{'product_id':selected,'product_name':x['name'],'type':type,'qty':amount,'price':unitPrice,'total':total,'note':[note.text.trim(),if(unitFactor>0&&tareGrams>0)'وزن ظرف: '+money.format(tareGrams)+' گرم'].where((v)=>v.isNotEmpty).join(' • '),'created':DateTime.now().toIso8601String(),'customer_id':type=='فروش'?selectedCustomer:null,'supplier_id':type=='خرید'?selectedSupplier:null,'paid':paidAmount,'fund_source':type=='خرید'?purchaseFundSource:'صندوق مغازه','cost_price':type=='فروش'?(x['buy'] as num).toDouble():unitPrice});
         if(paidAmount>0&&(type=='فروش'||purchaseFundSource=='صندوق مغازه')){final cashId=await t.insert('cash',{'type':type=='فروش'?'دریافت':'برداشت','amount':paidAmount,'note':'${type=='فروش'?'دریافت نقدی فروش':'پرداخت نقدی خرید'} • سند #$entryId','created':DateTime.now().toIso8601String()});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
       });
       widget.onChanged();setState((){});
