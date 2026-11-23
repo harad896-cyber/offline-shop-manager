@@ -37,14 +37,14 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 14, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 15, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
       await db.execute('CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER)');
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
-      await db.execute("CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'دریافت')");
+      await db.execute("CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'دریافت',fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')");
       await db.execute('CREATE TABLE suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,address TEXT,opening_balance REAL NOT NULL DEFAULT 0)');
-      await db.execute("CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'پرداخت')");
+      await db.execute("CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'پرداخت',fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')");
       await db.execute('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
       await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)');
       await db.execute('CREATE TABLE account_settlements(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,balance REAL NOT NULL,settled_at TEXT NOT NULL,note TEXT)');
@@ -71,6 +71,7 @@ class ShopDb {
       if (oldVersion < 12) { await db.execute('CREATE TABLE account_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,account_type TEXT NOT NULL,account_id INTEGER NOT NULL,direction TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)'); }
       if (oldVersion < 13) { await db.execute("ALTER TABLE supplier_payments ADD COLUMN type TEXT NOT NULL DEFAULT 'پرداخت'"); }
       if (oldVersion < 14) { await db.execute("UPDATE settings SET value='7000' WHERE key='seer_grams' AND value='1000'"); }
+      if (oldVersion < 15) { await db.execute("ALTER TABLE customer_payments ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); await db.execute("ALTER TABLE supplier_payments ADD COLUMN fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه'"); }
     });
     return _db!;
   }
@@ -168,6 +169,18 @@ class StatCard extends StatelessWidget {
 }
 Widget field(TextEditingController c,String label,{bool number=false})=>Padding(padding:const EdgeInsets.symmetric(vertical:5),child:TextField(controller:c,keyboardType:number?const TextInputType.numberWithOptions(decimal:true):TextInputType.text,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder())));
 
+Future<String?> chooseFundSource(BuildContext context,{required String title,String initial='صندوق مغازه'}) async {
+  String selected=initial=='پول شخصی'?'پول شخصی':'صندوق مغازه';
+  return showDialog<String>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(
+    title:Text(title),
+    content:Column(mainAxisSize:MainAxisSize.min,children:[
+      RadioListTile<String>(value:'صندوق مغازه',groupValue:selected,title:const Text('صندوق مغازه'),subtitle:const Text('این مبلغ در موجودی صندوق حساب می‌شود.'),onChanged:(v)=>refresh(()=>selected=v!)),
+      RadioListTile<String>(value:'پول شخصی',groupValue:selected,title:const Text('پول شخصی'),subtitle:const Text('در حساب طرف ثبت می‌شود، اما موجودی صندوق مغازه تغییر نمی‌کند.'),onChanged:(v)=>refresh(()=>selected=v!)),
+    ]),
+    actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,selected),child:const Text('تأیید منبع پول'))],
+  )));
+}
+
 Future<double> configuredSeerGrams() async {
   final db = await ShopDb.instance.database;
   final rows = await db.query('settings', where: 'key=?', whereArgs: ['seer_grams'], limit: 1);
@@ -186,7 +199,7 @@ double gramsPerUnit(String unit, double seerGrams) {
 List<Map<String,Object>> quantityPresets(String unit, double seerGrams) {
   final u=unit.trim();
   if(u.contains('کیلو') || u=='kg') return [
-    {'label':'¼ کیلو','value':0.25},{'label':'نیم کیلو','value':0.5},
+    {'label':'۱۰ گرم','value':0.01},{'label':'¼ کیلو','value':0.25},{'label':'نیم کیلو','value':0.5},
     {'label':'۱ کیلو','value':1.0},{'label':'۱٫۵ کیلو','value':1.5},
     {'label':'۲ کیلو','value':2.0},{'label':'۳ کیلو','value':3.0},
     {'label':'۵ کیلو','value':5.0},{'label':'۱۰ کیلو','value':10.0},
@@ -202,7 +215,7 @@ List<Map<String,Object>> quantityPresets(String unit, double seerGrams) {
     {'label':'۲ سیر','value':8.0},
   ];
   if(u.contains('سیر') || u=='seer' || u=='sir') return [
-    {'label':'¼ سیر','value':0.25},{'label':'نیم سیر','value':0.5},
+    {'label':'۱۰ گرم','value':10/seerGrams},{'label':'¼ سیر','value':0.25},{'label':'نیم سیر','value':0.5},
     {'label':'۱ سیر','value':1.0},{'label':'۱٫۵ سیر','value':1.5},
     {'label':'۲ سیر','value':2.0},{'label':'۳ سیر','value':3.0},
     {'label':'۴ سیر','value':4.0},
@@ -635,7 +648,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
   final adjustments=await db.query('account_adjustments',where:'account_type=? AND account_id=? AND (? IS NULL OR created>?)',whereArgs:['customer',id,cutoff,cutoff],orderBy:'created ASC,id ASC');
   final events=<Map<String,Object?>>[];
   for(final x in sales){events.add({'kind':'sale','id':x['id'],'created':x['created'],'title':x['product_name'],'qty':x['qty'],'unit':x['product_unit'],'price':x['price'],'total':x['total'],'paid':x['paid'],'note':x['note']});}
-  for(final x in payments){events.add({'kind':'payment','direction':x['type']??'دریافت','id':x['id'],'created':x['created'],'title':x['type']=='پرداخت'?'پرداخت نقدی به مشتری':x['type']=='برگشت'?'برگشت وجه به مشتری':'دریافت نقدی از مشتری','amount':x['amount'],'note':x['note'],'cash_id':x['cash_id']});}
+  for(final x in payments){events.add({'kind':'payment','direction':x['type']??'دریافت','id':x['id'],'created':x['created'],'title':x['type']=='پرداخت'?'پرداخت نقدی به مشتری':x['type']=='برگشت'?'برگشت وجه به مشتری':'دریافت نقدی از مشتری','amount':x['amount'],'note':x['note'],'cash_id':x['cash_id'],'fund_source':x['fund_source']??'صندوق مغازه'});}
   for(final x in adjustments){events.add({'kind':'adjustment','direction':x['direction'],'id':x['id'],'created':x['created'],'title':x['direction']=='increase'?'افزایش بدهی مشتری':'افزایش طلب مشتری','amount':x['amount'],'note':x['note']});}
   events.sort((a,b){final d=DateTime.parse(a['created'].toString()).compareTo(DateTime.parse(b['created'].toString()));if(d!=0)return d;return (a['id'] as int).compareTo(b['id'] as int);});
   double salesTotal=0,paidAtSale=0,creditSales=0,received=0,paidToCustomer=0,running=carry;
@@ -730,34 +743,36 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
  Color statusColor(double b)=>b>0.005?Colors.red:b< -0.005?Colors.green:Colors.blueGrey;
  Future<void> receive() async {
   final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت دریافت'))]));
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ادامه'))]));
   final value=parseNum(amount.text)??0;
-  if(ok==true&&value>0){final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();await db.transaction((t)async{
-   final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'دریافت','note':note.text.trim(),'created':created});
-   final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});
-   await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
-  });widget.onChanged();if(mounted)setState((){});}
- }
-
- Future<void> payCustomer() async {
-  final current=await loadLedger();
-  final currentBalance=(current['balance'] as num).toDouble();
-  final available=currentBalance.abs();
-  final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت نقدی به مشتری: ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(currentBalance< -0.005?'طلب فعلی مشتری: ${money.format(available)} افغانی':'پرداخت جدید حتی بدون خرید کالا؛ مبلغ پرداختی به حساب مشتری اضافه می‌شود.',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
-  final value=parseNum(amount.text)??0;
-  if(ok==true){
-   if(value<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر باشد.')));return;}
+  if(ok==true&&value>0){
+   final source=await chooseFundSource(context,title:'پول دریافتی از مشتری به کجا برود؟');if(source==null)return;
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
    await db.transaction((t)async{
-    final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'پرداخت','note':note.text.trim(),'created':created});
-    final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});
-    await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
+    final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'دریافت','note':note.text.trim(),'created':created,'fund_source':source});
+    if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);}
    });
    widget.onChanged();if(mounted)setState((){});
   }
  }
-
+ 
+ Future<void> payCustomer() async {
+  final current=await loadLedger();final currentBalance=(current['balance'] as num).toDouble();
+  final amount=TextEditingController(),note=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت نقدی به مشتری: ${widget.customer['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(currentBalance< -0.005?'طلب فعلی مشتری: ${money.format(currentBalance.abs())} افغانی':'پرداخت جدید حتی بدون خرید کالا؛ مبلغ پرداختی به حساب مشتری اضافه می‌شود.',style:const TextStyle(color:Colors.green,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ادامه'))]));
+  final value=parseNum(amount.text)??0;
+  if(ok==true){
+   if(value<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر باشد.')));return;}
+   final source=await chooseFundSource(context,title:'پول پرداختی به مشتری از کجا باشد؟');if(source==null)return;
+   final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
+   await db.transaction((t)async{
+    final paymentId=await t.insert('customer_payments',{'customer_id':widget.customer['id'],'amount':value,'type':'پرداخت','note':note.text.trim(),'created':created,'fund_source':source});
+    if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به مشتری ${widget.customer['name']} • ${note.text.trim()}','created':created});await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);}
+   });
+   widget.onChanged();if(mounted)setState((){});
+  }
+ }
+ 
  @override Widget build(BuildContext context)=>Scaffold(
   appBar:AppBar(title:Text('حساب مشتری: ${widget.customer['name']}'),actions:[IconButton(tooltip:'ثبت بدهی یا طلب دستی',onPressed:adjustBalance,icon:const Icon(Icons.edit_note)),IconButton(tooltip:'سوابق تسویه',onPressed:showSettlementHistory,icon:const Icon(Icons.history)),IconButton(tooltip:'تسویه حساب',onPressed:settleAccount,icon:const Icon(Icons.archive_outlined)),IconButton(tooltip:'پرداخت نقدی به مشتری (حتی بدون خرید)',onPressed:payCustomer,icon:const Icon(Icons.outbound)),IconButton(tooltip:'ثبت دریافت',onPressed:receive,icon:const Icon(Icons.add_card))]),
   floatingActionButton:FloatingActionButton.extended(onPressed:receive,icon:const Icon(Icons.payments_outlined),label:const Text('ثبت دریافت پول')),
@@ -775,7 +790,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
      if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:statusColor(opening)))));}
      final e=events[events.length-1-index],sale=e['kind']=='sale',incoming=e['direction']=='دریافت',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),created=DateTime.parse(e['created'].toString());
      final date=afghanDate(created);
-     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:(incoming?Colors.green:Colors.orange)).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),title:Text(sale?'فروش کالا به مشتری: ${e['title']}':e['title'].toString(),style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع فروش: ${money.format(e['total'])} • نقد دریافت‌شده هنگام فروش: ${money.format(e['paid'])} • باقی‌مانده نسیه: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))]),if(!sale)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(sale?Colors.red:(incoming?Colors.green:Colors.orange)).withOpacity(.10),child:Icon(sale?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),title:Text(sale?'فروش کالا به مشتری: ${e['title']}':e['title'].toString(),style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(sale?'${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع فروش: ${money.format(e['total'])} • نقد دریافت‌شده هنگام فروش: ${money.format(e['paid'])} • باقی‌مانده نسیه: ${money.format(delta)}\n$date':'${e['note']??''} • منبع: ${e['fund_source']??'صندوق مغازه'} • $date\nمانده پس از ثبت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:sale?Colors.red:(incoming?Colors.green:Colors.orange))),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:statusColor(running)))]),if(!sale)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
     })),
    ]);
   })
@@ -815,7 +830,7 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
   final adjustments=await db.query('account_adjustments',where:'account_type=? AND account_id=? AND (? IS NULL OR created>?)',whereArgs:['supplier',supplierId,cutoff,cutoff],orderBy:'created ASC,id ASC');
   final events=<Map<String,Object?>>[];
   for(final x in purchases){events.add({'kind':'purchase','id':x['id'],'created':x['created'],'title':x['product_name'],'qty':x['qty'],'unit':x['product_unit'],'price':x['price'],'total':x['total'],'paid':x['paid'],'note':x['note']});}
-  for(final x in payments){events.add({'kind':'payment','id':x['id'],'created':x['created'],'amount':x['amount'],'note':x['note'],'type':x['type']??'پرداخت','direction':x['type']??'پرداخت','cash_id':x['cash_id']});}
+  for(final x in payments){events.add({'kind':'payment','id':x['id'],'created':x['created'],'amount':x['amount'],'note':x['note'],'type':x['type']??'پرداخت','direction':x['type']??'پرداخت','cash_id':x['cash_id'],'fund_source':x['fund_source']??'صندوق مغازه'});}
   for(final x in adjustments){events.add({'kind':'adjustment','id':x['id'],'created':x['created'],'direction':x['direction'],'amount':x['amount'],'note':x['note']});}
   events.sort((a,b){final d=DateTime.parse(a['created'].toString()).compareTo(DateTime.parse(b['created'].toString()));if(d!=0)return d;return (a['id'] as int).compareTo(b['id'] as int);});
   double purchaseTotal=0,paidAtPurchase=0,purchaseDebt=0,paymentsTotal=0,receivedFromSupplier=0,running=carry;
@@ -846,14 +861,19 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
  }
  Future<void> receiveFromSupplier() async {
   final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از فروشنده ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (افغانی)',number:true),field(note,'علت / توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت دریافت'))]));
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از فروشنده ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (افغانی)',number:true),field(note,'علت / توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ادامه'))]));
   final value=parseNum(amount.text)??0;
   if(ok==true&&value>0){
+   final source=await chooseFundSource(context,title:'پول دریافتی از فروشنده به کجا برود؟');if(source==null)return;
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
-   await db.transaction((t)async{final id=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'type':'دریافت','note':note.text.trim(),'created':created});final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[id]);});
+   await db.transaction((t)async{
+    final id=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'type':'دریافت','note':note.text.trim(),'created':created,'fund_source':source});
+    if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[id]);}
+   });
    widget.onChanged();if(mounted)setState((){});
   }
  }
+ 
  Future<void> editLedgerEvent(Map<String,Object?> e) async {
   final kind=e['kind'];
   String direction=(kind=='adjustment'?e['direction']:e['direction']??'پرداخت').toString();
@@ -920,14 +940,20 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
  Future<void> pay() async {
   final ledger=await loadLedger();final balance=(ledger['balance'] as num).toDouble();
   final amount=TextEditingController(),note=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت نقدی به فروشنده ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(balance>0.005?'بدهی فعلی به فروشنده: ${money.format(balance)} افغانی':'پرداخت پیش‌پرداخت حتی بدون خرید کالا؛ در حساب فروشنده ثبت می‌شود.',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ثبت پرداخت'))]));
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('پرداخت نقدی به فروشنده ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text(balance>0.005?'بدهی فعلی به فروشنده: ${money.format(balance)} افغانی':'پرداخت پیش‌پرداخت حتی بدون خرید کالا؛ در حساب فروشنده ثبت می‌شود.',style:const TextStyle(color:Colors.red,fontWeight:FontWeight.bold)),field(amount,'مبلغ پرداختی (افغانی)',number:true),field(note,'توضیحات / شماره رسید')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ادامه'))]));
   final value=parseNum(amount.text)??0;
-  if(ok==true){if(value<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر باشد.')));return;}
+  if(ok==true){
+   if(value<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مبلغ باید بیشتر از صفر باشد.')));return;}
+   final source=await chooseFundSource(context,title:'پول پرداختی به فروشنده از کجا باشد؟');if(source==null)return;
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
-   await db.transaction((t)async{final paymentId=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'note':note.text.trim(),'created':created});final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);});
+   await db.transaction((t)async{
+    final paymentId=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'note':note.text.trim(),'created':created,'fund_source':source});
+    if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'برداشت','amount':value,'note':'پرداخت به فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);}
+   });
    widget.onChanged();if(mounted)setState((){});
   }
  }
+ 
  @override Widget build(BuildContext context)=>Scaffold(
   appBar:AppBar(title:Text('حساب فروشنده: ${widget.supplier['name']}'),actions:[IconButton(tooltip:'ثبت بدهی یا طلب دستی',onPressed:adjustBalance,icon:const Icon(Icons.edit_note)),IconButton(tooltip:'سوابق تسویه',onPressed:showSettlementHistory,icon:const Icon(Icons.history)),IconButton(tooltip:'تسویه حساب',onPressed:settleAccount,icon:const Icon(Icons.archive_outlined)),IconButton(tooltip:'دریافت پول از فروشنده',onPressed:receiveFromSupplier,icon:const Icon(Icons.add_card)),IconButton(tooltip:'ثبت پرداخت',onPressed:pay,icon:const Icon(Icons.payments_outlined))]),
   floatingActionButton:FloatingActionButton.extended(onPressed:pay,icon:const Icon(Icons.outbound),label:const Text('ثبت پرداخت به فروشنده')),
@@ -944,7 +970,7 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
     Expanded(child:ListView.builder(padding:const EdgeInsets.fromLTRB(10,2,10,90),itemCount:events.length+(v['opening']==0?0:1),itemBuilder:(context,index){
      if(index==events.length){final opening=(v['opening'] as num).toDouble();return Card(child:ListTile(dense:true,leading:const Icon(Icons.flag_outlined),title:const Text('مانده اول دوره'),subtitle:const Text('مانده انتقالی حساب'),trailing:Text('${money.format(opening.abs())} افغانی',style:TextStyle(fontWeight:FontWeight.bold,color:tint(opening)))));}
      final e=events[events.length-1-index],purchase=e['kind']=='purchase',incoming=e['direction']=='دریافت',delta=(e['delta'] as num).toDouble(),running=(e['running'] as num).toDouble(),date=afghanDate(DateTime.parse(e['created'].toString()));
-     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(purchase?Colors.red:Colors.green).withOpacity(.10),child:Icon(purchase?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:purchase?Colors.red:Colors.green)),title:Text(purchase?'خرید کالا از فروشنده: ${e['title']}':e['kind']=='adjustment'?(delta>0?'افزایش بدهی به فروشنده':'افزایش طلب از فروشنده'):incoming?'دریافت نقدی از فروشنده':'پرداخت نقدی به فروشنده',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(purchase?'مقدار: ${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع خرید: ${money.format(e['total'])} • نقد پرداخت‌شده هنگام خرید: ${money.format(e['paid'])} • باقی‌مانده بدهی: ${money.format(delta)}\n$date':'${e['note']??''} • $date\nمانده پس از پرداخت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:tint(running)))]),if(!purchase)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
+     return Card(margin:const EdgeInsets.symmetric(vertical:3),child:ListTile(dense:true,leading:CircleAvatar(radius:17,backgroundColor:(purchase?Colors.red:Colors.green).withOpacity(.10),child:Icon(purchase?Icons.shopping_bag_outlined:Icons.payments_outlined,size:18,color:purchase?Colors.red:Colors.green)),title:Text(purchase?'خرید کالا از فروشنده: ${e['title']}':e['kind']=='adjustment'?(delta>0?'افزایش بدهی به فروشنده':'افزایش طلب از فروشنده'):incoming?'دریافت نقدی از فروشنده':'پرداخت نقدی به فروشنده',style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13)),subtitle:Text(purchase?'مقدار: ${money.format(e['qty'])} ${e['unit']} × ${money.format(e['price'])} • جمع خرید: ${money.format(e['total'])} • نقد پرداخت‌شده هنگام خرید: ${money.format(e['paid'])} • باقی‌مانده بدهی: ${money.format(delta)}\n$date':'${e['note']??''} • منبع: ${e['fund_source']??'صندوق مغازه'} • $date\nمانده پس از پرداخت: ${money.format(running.abs())} ${running>0?'بدهکار':running<0?'طلبکار':'تسویه'}',style:const TextStyle(fontSize:11)),isThreeLine:true,trailing:Row(mainAxisSize:MainAxisSize.min,children:[Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text('${delta>0?'+':delta<0?'-':''}${money.format(delta.abs())}',style:TextStyle(fontWeight:FontWeight.bold,color:delta>0?Colors.red:Colors.green)),Text('مانده ${money.format(running.abs())}',style:TextStyle(fontSize:10,color:tint(running)))]),if(!purchase)PopupMenuButton<String>(tooltip:'ویرایش یا حذف گردش',onSelected:(v){if(v=='edit')editLedgerEvent(e);else if(v=='delete')deleteLedgerEvent(e);},itemBuilder:(c)=>const [PopupMenuItem(value:'edit',child:Text('ویرایش گردش')),PopupMenuItem(value:'delete',child:Text('حذف گردش'))])])));
     })),
    ]);
   })
