@@ -938,11 +938,10 @@ class _SupplierAccountPageState extends State<SupplierAccountPage>{
   final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text('دریافت پول از فروشنده ${widget.supplier['name']}'),content:Column(mainAxisSize:MainAxisSize.min,children:[field(amount,'مبلغ دریافتی (افغانی)',number:true),field(note,'علت / توضیحات')]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('ادامه'))]));
   final value=parseNum(amount.text)??0;
   if(ok==true&&value>0){
-   final source=await chooseFundSource(context,title:'پول دریافتی از فروشنده به کجا برود؟');if(source==null)return;
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();
    await db.transaction((t)async{
-    final id=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'type':'دریافت','note':note.text.trim(),'created':created,'fund_source':source});
-    if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[id]);}
+    final id=await t.insert('supplier_payments',{'supplier_id':supplierId,'amount':value,'type':'دریافت','note':note.text.trim(),'created':created,'fund_source':'صندوق مغازه'});
+    final cashId=await t.insert('cash',{'type':'دریافت','amount':value,'note':'دریافت از فروشنده ${widget.supplier['name']} • ${note.text.trim()}','created':created});await t.update('supplier_payments',{'cash_id':cashId},where:'id=?',whereArgs:[id]);
    });
    widget.onChanged();if(mounted)setState((){});
   }
