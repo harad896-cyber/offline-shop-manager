@@ -1,15 +1,31 @@
 import 'dart:ui' as ui;
+import 'dart:io' show Platform;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' show databaseFactoryFfi, sqfliteFfiInit;
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
 
-void main() async { WidgetsFlutterBinding.ensureInitialized(); await ShopDb.instance.database; runApp(const ShopApp()); }
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Android keeps the native sqflite driver. Windows uses SQLite FFI and a
+  // stable per-user application-data directory (never the current folder).
+  if (!kIsWeb && Platform.isWindows) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final support = await getApplicationSupportDirectory();
+    await databaseFactory.setDatabasesPath(p.join(support.path, 'databases'));
+  }
+  await ShopDb.instance.database;
+  runApp(const ShopApp());
+}
 String afghanDate(DateTime date,{bool withTime=true}) {
   final gy=date.year, gm=date.month, gd=date.day;
   const gdm=<int>[0,31,59,90,120,151,181,212,243,273,304,334];
