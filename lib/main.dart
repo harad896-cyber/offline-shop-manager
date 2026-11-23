@@ -114,6 +114,12 @@ class ShopDb {
       'products': {'insert':"'کالای جدید: '||NEW.name||' • موجودی: '||NEW.stock",'update':"'کالا: '||NEW.name||' • موجودی: '||OLD.stock||' ← '||NEW.stock",'delete':"'کالا حذف شد: '||OLD.name"},
       'customer_payments': {'insert':"'مشتری • مبلغ: '||NEW.amount",'update':"'پرداخت مشتری ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'پرداخت مشتری حذف شد • '||OLD.amount"},
       'supplier_payments': {'insert':"'فروشنده • مبلغ: '||NEW.amount",'update':"'پرداخت فروشنده ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'پرداخت فروشنده حذف شد • '||OLD.amount"},
+      'account_adjustments': {'insert':"'اصلاح حساب: '||NEW.account_type||' • مبلغ: '||NEW.amount",'update':"'اصلاح حساب ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'اصلاح حساب حذف شد • مبلغ: '||OLD.amount"},
+      'account_settlements': {'insert':"'تسویه حساب: '||NEW.account_type||' • مانده: '||NEW.balance",'update':"'تسویه ویرایش شد • '||OLD.balance||' ← '||NEW.balance",'delete':"'تسویه حذف شد • مانده: '||OLD.balance"},
+      'cash_closings': {'insert':"'بستن صندوق • تفاوت: '||NEW.difference",'update':"'بستن صندوق ویرایش شد • '||OLD.difference||' ← '||NEW.difference",'delete':"'بستن صندوق حذف شد • تفاوت: '||OLD.difference"},
+      'stock_adjustments': {'insert':"'اصلاح موجودی: '||NEW.product_name||' • مقدار: '||NEW.quantity",'update':"'اصلاح موجودی ویرایش شد • '||OLD.quantity||' ← '||NEW.quantity",'delete':"'اصلاح موجودی حذف شد • '||OLD.product_name"},
+      'customers': {'insert':"'مشتری جدید: '||NEW.name",'update':"'مشتری ویرایش شد: '||NEW.name",'delete':"'مشتری حذف شد: '||OLD.name"},
+      'suppliers': {'insert':"'فروشنده جدید: '||NEW.name",'update':"'فروشنده ویرایش شد: '||NEW.name",'delete':"'فروشنده حذف شد: '||OLD.name"},
     };
     for(final entry in tables.entries){
       final table=entry.key;
