@@ -615,10 +615,10 @@ class _CustomersPageState extends State<CustomersPage>{
    final value=parseNum(amount.text)??0;if(ok==true&&selected!=null&&value>0){final customer=customers.firstWhere((x)=>x['id']==selected);await receiveFor(customer,value,note.text);setState((){});}
  }
  Future<void> receiveFor(Map<String,Object?> customer,double amount,String note) async {
+   final source=await chooseFundSource(context,title:'پول دریافتی از مشتری به کجا برود؟');if(source==null)return;
    final db=await ShopDb.instance.database,created=DateTime.now().toIso8601String();await db.transaction((t)async{
-     final paymentId=await t.insert('customer_payments',{'customer_id':customer['id'],'amount':amount,'type':'دریافت','note':note,'created':created});
-     final cashId=await t.insert('cash',{'type':'دریافت','amount':amount,'note':'دریافت از مشتری ${customer['name']} • $note','created':created});
-     await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);
+     final paymentId=await t.insert('customer_payments',{'customer_id':customer['id'],'amount':amount,'type':'دریافت','note':note,'created':created,'fund_source':source});
+     if(source=='صندوق مغازه'){final cashId=await t.insert('cash',{'type':'دریافت','amount':amount,'note':'دریافت از مشتری ${customer['name']} • $note','created':created});await t.update('customer_payments',{'cash_id':cashId},where:'id=?',whereArgs:[paymentId]);}
    });
  }
  Future<void> settleFromList(Map<String,Object?> customer) async {
