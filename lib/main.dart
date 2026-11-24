@@ -1296,7 +1296,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ]))),
     Card(child:ListTile(leading:const Icon(Icons.assessment_outlined),title:const Text('دفتر کل، بدهکاران و تاریخچه تغییرات'),subtitle:const Text('تمام گردش‌های دوکان، حساب‌های باز مشتریان و فروشندگان و ثبت ویرایش‌ها را ببینید.'),trailing:const Icon(Icons.chevron_left),onTap:openReports)),
     const Card(child:ListTile(leading:Icon(Icons.wifi_off),title:Text('حالت آفلاین'),subtitle:Text('ثبت کالا، خرید، فروش و صندوق بدون اینترنت ذخیره می‌شود.'))),
-    const Card(child:ListTile(leading:Icon(Icons.currency_exchange),title:Text('واحد پول'),subtitle:Text('افغانی • مبلغ‌ها با اعداد انگلیسی نمایش داده می‌شوند.'))),
+    const Card(child:ListTile(leading:Icon(Icons.currency_exchange),title:Text('واحد پول'),subtitle:Text('فقط افغانی (AFN) • هیچ ارز دیگری در سیستم ثبت نمی‌شود • مبلغ‌ها با اعداد انگلیسی نمایش داده می‌شوند.'))),
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Text('پشتیبان‌گیری و انتقال اطلاعات',style:TextStyle(fontWeight:FontWeight.bold)),
       const SizedBox(height:5),const Text('از کالاها، مشتری‌ها، فروش‌ها، خریدها، صندوق و تمام گردش حساب‌ها یک فایل پشتیبان می‌سازد. فایل را به گوشی یا کامپیوتر دیگر منتقل کنید.',style:TextStyle(fontSize:12,color:Colors.blueGrey)),
