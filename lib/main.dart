@@ -53,9 +53,9 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 18, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 19, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
-      await db.execute("CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER,fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه',cost_price REAL NOT NULL DEFAULT 0)");
+      await db.execute("CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER,fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه',cost_price REAL NOT NULL DEFAULT 0,display_qty REAL,display_unit TEXT)");
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE customers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,balance REAL NOT NULL DEFAULT 0,opening_balance REAL NOT NULL DEFAULT 0)');
       await db.execute("CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL,cash_id INTEGER,type TEXT NOT NULL DEFAULT 'دریافت',fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه')");
@@ -102,6 +102,7 @@ class ShopDb {
         await db.execute('CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,record_id INTEGER,action TEXT NOT NULL,summary TEXT,created TEXT NOT NULL)');
       }
       if (oldVersion < 18) { await db.insert('settings', {'key':'cash_opening_balance','value':'0'}, conflictAlgorithm: ConflictAlgorithm.ignore); }
+      if (oldVersion < 19) { await db.execute('ALTER TABLE entries ADD COLUMN display_qty REAL'); await db.execute('ALTER TABLE entries ADD COLUMN display_unit TEXT'); await db.execute("UPDATE entries SET display_qty=qty, display_unit=COALESCE((SELECT unit FROM products WHERE products.id=entries.product_id),'عدد') WHERE display_qty IS NULL OR display_unit IS NULL"); }
       await installAuditTriggers(db);
     });
     return _db!;
@@ -247,13 +248,19 @@ Future<double> configuredSeerGrams() async {
   return value > 0 ? value.toDouble() : 1000.0;
 }
 double gramsPerUnit(String unit, double seerGrams) {
-  final u = unit.trim().toLowerCase();
+  final u = unit.trim().toLowerCase().replaceAll('‌',' ');
+  if (u == '۱۰ گرم' || u == '10 گرم') return 10;
+  if (u == '۱۰۰ گرم' || u == '100 گرم') return 100;
   if (u.contains('کیلو') || u == 'kg' || u == 'kilogram') return 1000;
   if (u.contains('چارک')) return seerGrams/4;
-  if (u.contains('نیم سیر') || u.contains('نیم‌سیر')) return seerGrams/2;
+  if (u.contains('نیم سیر')) return seerGrams/2;
+  if (u == 'گرم' || u == 'g' || u == 'gram') return 1;
   if (u.contains('سیر') || u == 'seer' || u == 'sir') return seerGrams;
-  if (u.contains('گرم') || u == 'g' || u == 'gram') return 1;
   return 0;
+}
+List<String> saleWeightUnits(String baseUnit, double seerGrams) {
+  if (gramsPerUnit(baseUnit, seerGrams) <= 0) return [baseUnit];
+  return ['گرم','۱۰ گرم','۱۰۰ گرم','چارک','نیم سیر','سیر','کیلوگرم'];
 }
 List<Map<String,Object>> quantityPresets(String unit, double seerGrams) {
   final u=unit.trim();
@@ -442,17 +449,20 @@ class _EntriesPageState extends State<EntriesPage> {
     final seerGrams=await configuredSeerGrams();
     final suppliers=type=='خرید'?await db.query('suppliers',orderBy:'name'):<Map<String,Object?>>[];
     int? selected=products.first['id'] as int;
+    String quantityUnit=products.first['unit'].toString();
     int? selectedCustomer; int? selectedSupplier;
     final qty=TextEditingController(text:'1'),tare=TextEditingController(text:'0'),price=TextEditingController(text:'${products.first[type=='فروش'?'sell':'buy']}'),note=TextEditingController(),customerSearch=TextEditingController(),paid=TextEditingController();
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh){
       final filtered=customers.where((x)=>'${x['name']} ${x['phone']??''}'.toLowerCase().contains(customerSearch.text.toLowerCase())).toList();
       final selectedProduct=products.firstWhere((e)=>e['id']==selected);
-      final selectedUnit=selectedProduct['unit'].toString();
-      final factor=gramsPerUnit(selectedUnit,seerGrams);
+      final baseUnit=selectedProduct['unit'].toString();
+      final baseFactor=gramsPerUnit(baseUnit,seerGrams);
+      final selectedFactor=gramsPerUnit(quantityUnit,seerGrams);
       final gross=parseNum(qty.text)??0, tareGrams=parseNum(tare.text)??0;
-      final netQty=factor>0?gross-(tareGrams/factor):gross;
+      final netQty=selectedFactor>0?gross-(tareGrams/selectedFactor):gross;
+      final baseAmount=baseFactor>0&&selectedFactor>0?netQty*selectedFactor/baseFactor:netQty;
       return AlertDialog(title:Text('ثبت $type'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<int>(value:selected,decoration:const InputDecoration(labelText:'انتخاب کالا'),items:products.map((x)=>DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']} (${x['unit']})'))).toList(),onChanged:(v){refresh(()=>selected=v);final x=products.firstWhere((e)=>e['id']==v);price.text='${x[type=='فروش'?'sell':'buy']}';}),
+        DropdownButtonFormField<int>(value:selected,decoration:const InputDecoration(labelText:'انتخاب کالا'),items:products.map((x)=>DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']} (${x['unit']})'))).toList(),onChanged:(v){final x=products.firstWhere((e)=>e['id']==v);refresh(()=>{selected=v,quantityUnit=x['unit'].toString()});price.text='${x[type=='فروش'?'sell':'buy']}';}),
         if(type=='خرید') ...[
           const SizedBox(height:10),TextField(controller:customerSearch,decoration:const InputDecoration(labelText:'جستجوی دوکان / فروشنده',prefixIcon:Icon(Icons.search)),onChanged:(_)=>refresh((){})),
           if(customerSearch.text.isNotEmpty) ...suppliers.where((x)=>' ${x['name']} ${x['phone']??''}'.toLowerCase().contains(customerSearch.text.toLowerCase())).take(5).map((x)=>ListTile(dense:true,selected:selectedSupplier==x['id'],leading:const Icon(Icons.storefront_outlined),title:Text('${x['name']}'),subtitle:Text('${x['phone']??''}'),onTap:()=>refresh(()=>selectedSupplier=x['id'] as int))),
@@ -466,25 +476,25 @@ class _EntriesPageState extends State<EntriesPage> {
           if(selectedCustomer!=null) FutureBuilder<double>(future:currentCustomerBalance(selectedCustomer!),builder:(ctx,bal){if(!bal.hasData)return const SizedBox.shrink();final value=bal.data!;return Container(width:double.infinity,margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(9),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(10)),child:Text('مانده فعلی: ${money.format(value.abs())} افغانی • ${value>0?'بدهکار':value<0?'طلبکار':'تسویه'}\nمبلغ پرداخت‌نشده این فروش به حساب مشتری اضافه می‌شود.',style:TextStyle(fontSize:11,color:value>0?Colors.red:value<0?Colors.green:Colors.blueGrey)));}),
           if(selectedCustomer==null) Container(width:double.infinity,margin:const EdgeInsets.only(top:6),padding:const EdgeInsets.all(9),decoration:BoxDecoration(color:Colors.red.withOpacity(.08),borderRadius:BorderRadius.circular(8),border:Border.all(color:Colors.red.withOpacity(.45))),child:Text(customers.isEmpty?'برای ثبت فروش ابتدا از بخش حساب‌ها یک مشتری بسازید.':'برای ثبت فروش، یک مشتری را جستجو و انتخاب کنید.',style:const TextStyle(color:Colors.red,fontSize:12,fontWeight:FontWeight.w600))),
         ],
-        TextField(controller:qty,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:(factor>0?'وزن ناخالص کالا (':'مقدار کالا (')+selectedUnit+')',border:const OutlineInputBorder())),
-        if(factor>0) TextField(controller:tare,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'وزن ظرف / بسته‌بندی (گرم)',helperText:'این وزن از مقدار ناخالص کم می‌شود.',border:OutlineInputBorder())),
-        if(factor>0) Align(alignment:Alignment.centerRight,child:Text('وزن خالص قابل ثبت: '+money.format(netQty)+' '+selectedUnit,style:TextStyle(fontWeight:FontWeight.bold,color:netQty>0?Colors.green:Colors.red))),
-        Align(alignment:Alignment.centerRight,child:Text('مقدارهای آماده',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:12))),
-        Wrap(spacing:5,runSpacing:3,children:quantityPresets(selectedUnit,seerGrams).map((p)=>ActionChip(label:Text(p['label'].toString()),onPressed:()=>refresh(()=>qty.text=(p['value'] as double).toStringAsFixed(8)))).toList()),
-        TextField(controller:price,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'قیمت هر '+products.firstWhere((e)=>e['id']==selected)['unit'].toString()+' (افغانی)',border:const OutlineInputBorder())),
+        Row(children:[Expanded(child:TextField(controller:qty,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:(baseFactor>0?'وزن ناخالص':'مقدار')+' ($quantityUnit)',border:const OutlineInputBorder()))),const SizedBox(width:8),if(baseFactor>0)OutlinedButton.icon(onPressed:()async{final picked=await showModalBottomSheet<String>(context:context,showDragHandle:true,builder:(sheet)=>SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:Wrap(spacing:8,runSpacing:8,children:saleWeightUnits(baseUnit,seerGrams).map((u)=>ActionChip(label:Text(u),onPressed:()=>Navigator.pop(sheet,u))).toList()))));if(picked!=null){final ratio=gramsPerUnit(picked,seerGrams)/baseFactor;final basePrice=(parseNum(price.text)??0);refresh(()=>quantityUnit=picked);price.text=money.format(basePrice*ratio).replaceAll(',','');refresh((){});}},icon:const Icon(Icons.scale_outlined),label:Text(quantityUnit))]),
+        if(baseFactor>0) TextField(controller:tare,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'وزن ظرف / بسته‌بندی (گرام)',helperText:'وزن ظرف از وزن ناخالص کم می‌شود.',border:OutlineInputBorder())),
+        if(baseFactor>0) Align(alignment:Alignment.centerRight,child:Text('وزن خالص: '+money.format(netQty)+' '+quantityUnit+'  •  معادل '+money.format(baseAmount)+' '+baseUnit,style:TextStyle(fontWeight:FontWeight.bold,color:netQty>0?Colors.green:Colors.red))),
+        TextField(controller:price,onChanged:(_)=>refresh((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'قیمت هر '+quantityUnit+' (افغانی)',border:const OutlineInputBorder())),
         if(products.firstWhere((e)=>e['id']==selected)['unit']=='کارتن') Builder(builder:(ctx){final p=products.firstWhere((e)=>e['id']==selected);final count=(p['pieces_per_carton'] as num?)?.toInt()??1;final cartonPrice=parseNum(price.text)??0;final buy=(p['buy'] as num).toDouble();return Container(width:double.infinity,padding:const EdgeInsets.all(9),margin:const EdgeInsets.only(top:5),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('هر کارتن: $count عدد'),Text('قیمت هر عدد برای مشتری: '+money.format(cartonPiecePrice(cartonPrice,count))+' افغانی'),Text('قیمت تمام‌شده هر عدد برای شما: '+money.format(cartonPiecePrice(buy,count))+' افغانی'),Text('سود هر عدد: '+money.format(cartonPiecePrice(cartonPrice-buy,count))+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold))]));}),
-        Builder(builder:(ctx){final product=products.firstWhere((e)=>e['id']==selected);final q=netQty,pv=parseNum(price.text)??0,subtotal=q*pv,margin=q*(type=='فروش'?pv-((product['buy'] as num).toDouble()):((product['sell'] as num).toDouble())-pv);final stock=(product['stock'] as num).toDouble();return Container(width:double.infinity,margin:const EdgeInsets.symmetric(vertical:8),padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(12)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('جمع سند: '+money.format(subtotal)+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold)),Text((type=='فروش'?'سود تقریبی این فروش: ':'سود احتمالی پس از خرید: ')+money.format(margin)+' افغانی',style:TextStyle(color:margin>=0?Colors.green:Colors.red,fontWeight:FontWeight.w600)),if(type=='فروش')Text('موجودی فعلی: '+money.format(stock)+' '+product['unit'].toString(),style:TextStyle(fontSize:11,color:q>stock?Colors.red:Colors.blueGrey)),if(product['unit']=='کارتن')Text('تعداد عدد در فروش: '+money.format(q*(product['pieces_per_carton'] as num? ?? 1))+' عدد',style:const TextStyle(fontSize:11))]));}),
+        Builder(builder:(ctx){final product=products.firstWhere((e)=>e['id']==selected);final q=netQty,pv=parseNum(price.text)??0,subtotal=q*pv;final baseCost=(product['buy'] as num).toDouble();final baseSell=(product['sell'] as num).toDouble();final ratio=baseFactor>0?selectedFactor/baseFactor:1.0;final margin=q*(type=='فروش'?pv-baseCost*ratio:baseSell*ratio-pv);final stock=(product['stock'] as num).toDouble();return Container(width:double.infinity,margin:const EdgeInsets.symmetric(vertical:8),padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Theme.of(ctx).colorScheme.surfaceContainer,borderRadius:BorderRadius.circular(12)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('جمع سند: '+money.format(subtotal)+' افغانی',style:const TextStyle(fontWeight:FontWeight.bold)),Text((type=='فروش'?'سود تقریبی این فروش: ':'سود احتمالی پس از خرید: ')+money.format(margin)+' افغانی',style:TextStyle(color:margin>=0?Colors.green:Colors.red,fontWeight:FontWeight.w600)),if(type=='فروش')Text('موجودی فعلی: '+money.format(stock)+' '+product['unit'].toString()+' • مقدار مورد نیاز: '+money.format(baseAmount)+' '+baseUnit,style:TextStyle(fontSize:11,color:baseAmount>stock?Colors.red:Colors.blueGrey)),if(product['unit']=='کارتن')Text('تعداد عدد در فروش: '+money.format(q*(product['pieces_per_carton'] as num? ?? 1))+' عدد',style:const TextStyle(fontSize:11))]));}),
         field(paid,type=='فروش'?'مبلغ نقدی همان لحظه (۰ = تمام مبلغ نسیه؛ خالی = نقدی کامل)':'مبلغ نقدی پرداخت‌شده به فروشنده (خالی = تمام مبلغ)',number:true),
         field(note,'یادداشت')
       ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('لغو')),FilledButton(onPressed:(){if(type=='فروش'&&selectedCustomer==null){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت فروش ابتدا مشتری را انتخاب کنید.'),backgroundColor:Colors.red));refresh((){});return;}Navigator.pop(c,true);},child:const Text('ثبت'))]);
     }));
     if(ok==true&&selected!=null){
       final x=products.firstWhere((e)=>e['id']==selected);
-      final grossAmount=parseNum(qty.text)??0,tareGrams=parseNum(tare.text)??0,unitFactor=gramsPerUnit(x['unit'].toString(),seerGrams);
-      final amount=unitFactor>0?grossAmount-(tareGrams/unitFactor):grossAmount;
-      final unitPrice=parseNum(price.text)??0,total=amount*unitPrice;
+      final grossAmount=parseNum(qty.text)??0,tareGrams=parseNum(tare.text)??0,baseFactor=gramsPerUnit(x['unit'].toString(),seerGrams),selectedFactor=gramsPerUnit(quantityUnit,seerGrams);
+      final displayAmount=selectedFactor>0?grossAmount-(tareGrams/selectedFactor):grossAmount;
+      final amount=baseFactor>0&&selectedFactor>0?displayAmount*selectedFactor/baseFactor:displayAmount;
+      final displayPrice=parseNum(price.text)??0,total=displayAmount*displayPrice;
+      final unitPrice=amount>0?total/amount:0;
       final paidAmount=paid.text.trim().isEmpty?total:(parseNum(paid.text)??0);
-      if(amount<=0||grossAmount<=0||tareGrams<0||(unitFactor>0&&tareGrams>=grossAmount*unitFactor)||unitPrice<0||paidAmount<0||paidAmount>total){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار، قیمت یا مبلغ نقدی معتبر نیست.')));return;} if(type=='خرید'&&selectedSupplier==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت خرید، فروشنده را انتخاب کنید.')));return;} if(type=='فروش'&&selectedCustomer==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت فروش ابتدا مشتری را انتخاب کنید.'),backgroundColor:Colors.red));return;}
+      if(amount<=0||grossAmount<=0||tareGrams<0||(selectedFactor>0&&tareGrams>=grossAmount*selectedFactor)||displayPrice<0||paidAmount<0||paidAmount>total){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('مقدار، قیمت یا مبلغ نقدی معتبر نیست.')));return;} if(type=='خرید'&&selectedSupplier==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت خرید، فروشنده را انتخاب کنید.')));return;} if(type=='فروش'&&selectedCustomer==null){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای ثبت فروش ابتدا مشتری را انتخاب کنید.'),backgroundColor:Colors.red));return;}
       final currentStock=(x['stock'] as num).toDouble();
       if(type=='فروش'&&amount>currentStock){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی کالا کافی نیست.')));return;}
       var purchaseFundSource='صندوق مغازه';
@@ -492,7 +502,7 @@ class _EntriesPageState extends State<EntriesPage> {
       await db.transaction((t)async{
         final stock=currentStock+(type=='خرید'?amount:-amount);
         await t.update('products',{'stock':stock,'updated':DateTime.now().toIso8601String()},where:'id=?',whereArgs:[selected]);
-        final entryId=await t.insert('entries',{'product_id':selected,'product_name':x['name'],'type':type,'qty':amount,'price':unitPrice,'total':total,'note':[note.text.trim(),if(unitFactor>0&&tareGrams>0)'وزن ظرف: '+money.format(tareGrams)+' گرم'].where((v)=>v.isNotEmpty).join(' • '),'created':DateTime.now().toIso8601String(),'customer_id':type=='فروش'?selectedCustomer:null,'supplier_id':type=='خرید'?selectedSupplier:null,'paid':paidAmount,'fund_source':type=='خرید'?purchaseFundSource:'صندوق مغازه','cost_price':type=='فروش'?(x['buy'] as num).toDouble():unitPrice});
+        final entryId=await t.insert('entries',{'product_id':selected,'product_name':x['name'],'type':type,'qty':amount,'price':unitPrice,'total':total,'note':[note.text.trim(),if(selectedFactor>0)'مقدار فروش: '+money.format(displayAmount)+' '+quantityUnit,if(selectedFactor>0&&tareGrams>0)'وزن ظرف: '+money.format(tareGrams)+' گرام'].where((v)=>v.isNotEmpty).join(' • '),'created':DateTime.now().toIso8601String(),'customer_id':type=='فروش'?selectedCustomer:null,'supplier_id':type=='خرید'?selectedSupplier:null,'paid':paidAmount,'fund_source':type=='خرید'?purchaseFundSource:'صندوق مغازه','cost_price':type=='فروش'?(x['buy'] as num).toDouble():unitPrice,'display_qty':displayAmount,'display_unit':quantityUnit});
         if(paidAmount>0&&(type=='فروش'||purchaseFundSource=='صندوق مغازه')){final cashId=await t.insert('cash',{'type':type=='فروش'?'دریافت':'برداشت','amount':paidAmount,'note':'${type=='فروش'?'دریافت نقدی فروش':'پرداخت نقدی خرید'} • سند #$entryId','created':DateTime.now().toIso8601String()});await t.update('entries',{'cash_id':cashId},where:'id=?',whereArgs:[entryId]);}
       });
       widget.onChanged();setState((){});
@@ -513,8 +523,8 @@ class _EntriesPageState extends State<EntriesPage> {
       'تاریخ: ${afghanDate(created)}',
       if(party!=null&&party.isNotEmpty) '${sale?'مشتری':'فروشنده'}: $party',
       'کالا: ${x['product_name']}',
-      'مقدار: ${money.format(qty)} ${x['product_unit']??''}',
-      'قیمت واحد: ${money.format(price)} افغانی',
+      'مقدار: ${money.format((x['display_qty'] as num?)?.toDouble()??qty)} ${x['display_unit']??x['product_unit']??''}',
+      'قیمت واحد: ${money.format(((x['display_qty'] as num?)?.toDouble()??qty)>0?total/((x['display_qty'] as num?)?.toDouble()??qty):price)} افغانی',
       'مجموع: ${money.format(total)} افغانی',
       'پرداخت‌شده: ${money.format(paid)} افغانی',
       'باقی‌مانده: ${money.format(total-paid)} افغانی',
@@ -550,7 +560,7 @@ class _EntriesPageState extends State<EntriesPage> {
       final currentStock=(productRows.first['stock'] as num).toDouble();
       if(currentStock+delta*sign < -0.000001)throw StateError('موجودی کافی نیست؛ مقدار فروش را کاهش دهید.');
       await t.rawUpdate('UPDATE products SET stock=stock+? WHERE id=?',[delta*sign,x['product_id']]);
-      await t.update('entries',{'qty':q,'price':pv,'total':q*pv,'paid':paidValue,'note':note.text,'fund_source':x['type']=='خرید'?editedFundSource:'صندوق مغازه'},where:'id=?',whereArgs:[x['id']]);
+      await t.update('entries',{'qty':q,'price':pv,'total':q*pv,'paid':paidValue,'note':note.text,'fund_source':x['type']=='خرید'?editedFundSource:'صندوق مغازه','display_qty':q,'display_unit':x['product_unit']??'عدد'},where:'id=?',whereArgs:[x['id']]);
       final cashId=x['cash_id'];
       final affectsCash=paidValue>0&&(x['type']=='فروش'||editedFundSource=='صندوق مغازه');
       if(cashId!=null){if(affectsCash){await t.update('cash',{'amount':paidValue,'type':x['type']=='فروش'?'دریافت':'برداشت'},where:'id=?',whereArgs:[cashId]);}else{await t.delete('cash',where:'id=?',whereArgs:[cashId]);await t.update('entries',{'cash_id':null},where:'id=?',whereArgs:[x['id']]);}}
@@ -586,7 +596,7 @@ class _EntriesPageState extends State<EntriesPage> {
           const SizedBox(width:9),
           Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text('${x['product_name']}  ${adjustment?'(اصلاح موجودی)':sale?'(فروش)':'(خرید)'}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:13),maxLines:1,overflow:TextOverflow.ellipsis),
-            Text(adjustment?'${x['note']??''} • $date':'${party??(sale?'مشتری نقدی':'فروشنده نامشخص')} • ${money.format(x['qty'])} ${x['product_unit']??''} × ${money.format(x['price'])} • $date',style:const TextStyle(fontSize:10,color:Colors.blueGrey),maxLines:2,overflow:TextOverflow.ellipsis),
+            Text(adjustment?'${x['note']??''} • $date':'${party??(sale?'مشتری نقدی':'فروشنده نامشخص')} • ${money.format((x['display_qty'] as num?)?.toDouble()??(x['qty'] as num).toDouble())} ${x['display_unit']??x['product_unit']??''} × ${money.format(((x['display_qty'] as num?)?.toDouble()??(x['qty'] as num).toDouble())>0?(x['total'] as num).toDouble()/((x['display_qty'] as num?)?.toDouble()??(x['qty'] as num).toDouble()):(x['price'] as num).toDouble())} • $date',style:const TextStyle(fontSize:10,color:Colors.blueGrey),maxLines:2,overflow:TextOverflow.ellipsis),
             if(!adjustment)Text('پرداخت‌شده: ${money.format(paid)}  •  باقی: ${money.format(left)}',style:TextStyle(fontSize:10,color:left>0?Colors.orange:Colors.green))
           ])),
           const SizedBox(width:4),
