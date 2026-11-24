@@ -1,0 +1,58 @@
+name: Build Windows Desktop
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feature/complete-shop-management]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/windows-desktop.yml'
+permissions:
+  contents: write
+concurrency:
+  group: windows-desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+      - name: Generate Windows runner
+        run: flutter create --platforms=windows --org com.arad .
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Run tests
+        run: flutter test
+      - name: Build Windows release
+        run: flutter build windows --release
+      - name: Package Windows app
+        shell: pwsh
+        run: |
+          $release = 'build/windows/x64/runner/Release'
+          if (!(Test-Path "$release/offline_shop_manager.exe")) {
+            throw 'Windows executable was not produced.'
+          }
+          Compress-Archive -Path "$release/*" -DestinationPath 'offline-shop-manager-windows-x64.zip' -Force
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-shop-manager-windows-x64
+          path: offline-shop-manager-windows-x64.zip
+          retention-days: 30
+      - name: Publish Windows release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: shop-windows-${{ github.run_number }}
+          name: Offline Shop Manager Windows ${{ github.run_number }}
+          body: |
+            Windows x64 desktop build.
+            Extract the ZIP and run offline_shop_manager.exe.
+            The local SQLite database is stored in the current Windows user's application-support directory.
+          files: offline-shop-manager-windows-x64.zip
+          fail_on_unmatched_files: true

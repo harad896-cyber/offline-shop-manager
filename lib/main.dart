@@ -1,15 +1,31 @@
 import 'dart:ui' as ui;
+import 'dart:io' show Platform;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' show databaseFactoryFfi, sqfliteFfiInit;
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
 
-void main() async { WidgetsFlutterBinding.ensureInitialized(); await ShopDb.instance.database; runApp(const ShopApp()); }
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Android keeps the native sqflite driver. Windows uses SQLite FFI and a
+  // stable per-user application-data directory (never the current folder).
+  if (!kIsWeb && Platform.isWindows) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final support = await getApplicationSupportDirectory();
+    await databaseFactory.setDatabasesPath(p.join(support.path, 'databases'));
+  }
+  await ShopDb.instance.database;
+  runApp(const ShopApp());
+}
 String afghanDate(DateTime date,{bool withTime=true}) {
   final gy=date.year, gm=date.month, gd=date.day;
   const gdm=<int>[0,31,59,90,120,151,181,212,243,273,304,334];
@@ -37,7 +53,7 @@ class ShopDb {
   Future<Database> get database async {
     if (_db != null) return _db!;
     final base = await getDatabasesPath();
-    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 17, onCreate: (db, v) async {
+    _db = await openDatabase(p.join(base, 'offline_shop.db'), version: 18, onCreate: (db, v) async {
       await db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,unit TEXT NOT NULL,stock REAL NOT NULL DEFAULT 0,buy REAL NOT NULL DEFAULT 0,sell REAL NOT NULL DEFAULT 0,pieces_per_carton INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL)');
       await db.execute("CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER,product_name TEXT NOT NULL,type TEXT NOT NULL,qty REAL NOT NULL,price REAL NOT NULL,total REAL NOT NULL,note TEXT,created TEXT NOT NULL,customer_id INTEGER,paid REAL NOT NULL DEFAULT 0,supplier_id INTEGER,cash_id INTEGER,fund_source TEXT NOT NULL DEFAULT 'صندوق مغازه',cost_price REAL NOT NULL DEFAULT 0)");
       await db.execute('CREATE TABLE cash(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
@@ -53,6 +69,7 @@ class ShopDb {
       await db.execute('CREATE TABLE stock_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,reason TEXT NOT NULL,cost_value REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
       await db.execute('CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,record_id INTEGER,action TEXT NOT NULL,summary TEXT,created TEXT NOT NULL)');
       await db.insert('settings', {'key':'seer_grams','value':'7000'});
+      await db.insert('settings', {'key':'cash_opening_balance','value':'0'});
       await installAuditTriggers(db);
     }, onUpgrade: (db, oldVersion, newVersion) async { if (oldVersion < 2) { await db.execute('ALTER TABLE entries ADD COLUMN customer_id INTEGER'); } if (oldVersion < 3) { await db.execute('CREATE TABLE price_history(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,buy REAL NOT NULL,sell REAL NOT NULL,changed TEXT NOT NULL)'); await db.execute('INSERT INTO price_history(product_id,buy,sell,changed) SELECT id,buy,sell,updated FROM products'); } if (oldVersion < 4) { await db.execute('ALTER TABLE entries ADD COLUMN paid REAL NOT NULL DEFAULT 0'); await db.execute('ALTER TABLE customers ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0'); await db.execute('CREATE TABLE customer_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)'); await db.execute('UPDATE customers SET opening_balance=-balance'); } if (oldVersion < 5) { await db.execute('ALTER TABLE entries ADD COLUMN supplier_id INTEGER'); await db.execute('CREATE TABLE suppliers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT,address TEXT,opening_balance REAL NOT NULL DEFAULT 0)'); await db.execute('CREATE TABLE supplier_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,supplier_id INTEGER NOT NULL,amount REAL NOT NULL,note TEXT,created TEXT NOT NULL)');  } if (oldVersion < 6) {
       await db.execute('ALTER TABLE entries ADD COLUMN cash_id INTEGER');
@@ -84,6 +101,7 @@ class ShopDb {
         await db.execute('CREATE TABLE stock_adjustments(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,reason TEXT NOT NULL,cost_value REAL NOT NULL,note TEXT,created TEXT NOT NULL)');
         await db.execute('CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,record_id INTEGER,action TEXT NOT NULL,summary TEXT,created TEXT NOT NULL)');
       }
+      if (oldVersion < 18) { await db.insert('settings', {'key':'cash_opening_balance','value':'0'}, conflictAlgorithm: ConflictAlgorithm.ignore); }
       await installAuditTriggers(db);
     });
     return _db!;
@@ -96,6 +114,12 @@ class ShopDb {
       'products': {'insert':"'کالای جدید: '||NEW.name||' • موجودی: '||NEW.stock",'update':"'کالا: '||NEW.name||' • موجودی: '||OLD.stock||' ← '||NEW.stock",'delete':"'کالا حذف شد: '||OLD.name"},
       'customer_payments': {'insert':"'مشتری • مبلغ: '||NEW.amount",'update':"'پرداخت مشتری ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'پرداخت مشتری حذف شد • '||OLD.amount"},
       'supplier_payments': {'insert':"'فروشنده • مبلغ: '||NEW.amount",'update':"'پرداخت فروشنده ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'پرداخت فروشنده حذف شد • '||OLD.amount"},
+      'account_adjustments': {'insert':"'اصلاح حساب: '||NEW.account_type||' • مبلغ: '||NEW.amount",'update':"'اصلاح حساب ویرایش شد • '||OLD.amount||' ← '||NEW.amount",'delete':"'اصلاح حساب حذف شد • مبلغ: '||OLD.amount"},
+      'account_settlements': {'insert':"'تسویه حساب: '||NEW.account_type||' • مانده: '||NEW.balance",'update':"'تسویه ویرایش شد • '||OLD.balance||' ← '||NEW.balance",'delete':"'تسویه حذف شد • مانده: '||OLD.balance"},
+      'cash_closings': {'insert':"'بستن صندوق • تفاوت: '||NEW.difference",'update':"'بستن صندوق ویرایش شد • '||OLD.difference||' ← '||NEW.difference",'delete':"'بستن صندوق حذف شد • تفاوت: '||OLD.difference"},
+      'stock_adjustments': {'insert':"'اصلاح موجودی: '||NEW.product_name||' • مقدار: '||NEW.quantity",'update':"'اصلاح موجودی ویرایش شد • '||OLD.quantity||' ← '||NEW.quantity",'delete':"'اصلاح موجودی حذف شد • '||OLD.product_name"},
+      'customers': {'insert':"'مشتری جدید: '||NEW.name",'update':"'مشتری ویرایش شد: '||NEW.name",'delete':"'مشتری حذف شد: '||OLD.name"},
+      'suppliers': {'insert':"'فروشنده جدید: '||NEW.name",'update':"'فروشنده ویرایش شد: '||NEW.name",'delete':"'فروشنده حذف شد: '||OLD.name"},
     };
     for(final entry in tables.entries){
       final table=entry.key;
@@ -134,10 +158,20 @@ class ShopApp extends StatelessWidget {
 }
 class HomePage extends StatefulWidget { const HomePage({super.key}); @override State<HomePage> createState()=>_HomePageState(); }
 class _HomePageState extends State<HomePage> {
-  int tab=0,revision=0,financeSection=0; String entryType='فروش'; void reload()=>setState(()=>revision++);
+  int tab=0,revision=0,financeSection=0; String entryType='فروش'; DateTime? _lastBackPressed; void reload()=>setState(()=>revision++);
+  Future<bool> _confirmExit() async {
+    final now=DateTime.now();
+    if(_lastBackPressed==null || now.difference(_lastBackPressed!)>const Duration(seconds:2)){
+      _lastBackPressed=now;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('برای بستن برنامه، یک‌بار دیگر دکمه برگشت را بزنید.'),duration:Duration(seconds:2)));
+      return false;
+    }
+    return true;
+  }
   @override Widget build(BuildContext context) {
     final pages=[Dashboard(key:ValueKey('d$revision'),onOpenTab:(v)=>setState(()=>tab=v),onOpenFinance:(v)=>setState((){financeSection=v;tab=3;}),onOpenEntries:(v)=>setState((){entryType=v;tab=2;})),ProductsPage(key:ValueKey('p$revision'),onChanged:reload),EntriesPage(key:ValueKey('e$revision'),onChanged:reload,initialType:entryType),FinancePage(key:ValueKey('f$revision'),onChanged:reload,initialSection:financeSection),SettingsPage(key:ValueKey('s$revision'))];
-    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت دوکان',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:IndexedStack(index:tab,children:pages),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')])));
+    const destinations=<NavigationDestination>[NavigationDestination(icon:Icon(Icons.dashboard_outlined),label:'خانه'),NavigationDestination(icon:Icon(Icons.inventory_2_outlined),label:'کالاها'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'خرید و فروش'),NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:'حسابداری'),NavigationDestination(icon:Icon(Icons.settings_outlined),label:'تنظیمات')];
+    return WillPopScope(onWillPop:_confirmExit,child:Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(appBar:AppBar(title:const Text('مدیریت دوکان',style:TextStyle(fontWeight:FontWeight.bold)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:Center(child:Text('افغانی',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.bold))))]),body:LayoutBuilder(builder:(context,constraints){final desktop=constraints.maxWidth>=850;if(desktop){return Row(children:[NavigationRail(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),labelType:NavigationRailLabelType.all,backgroundColor:Theme.of(context).colorScheme.surface,destinations:const [NavigationRailDestination(icon:Icon(Icons.dashboard_outlined),label:Text('خانه')),NavigationRailDestination(icon:Icon(Icons.inventory_2_outlined),label:Text('کالاها')),NavigationRailDestination(icon:Icon(Icons.receipt_long_outlined),label:Text('خرید و فروش')),NavigationRailDestination(icon:Icon(Icons.account_balance_wallet_outlined),label:Text('حسابداری')),NavigationRailDestination(icon:Icon(Icons.settings_outlined),label:Text('تنظیمات'))]),const VerticalDivider(width:1),Expanded(child:IndexedStack(index:tab,children:pages))]);}return IndexedStack(index:tab,children:pages);}),bottomNavigationBar:LayoutBuilder(builder:(context,constraints)=>constraints.maxWidth>=850?const SizedBox.shrink():NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:destinations)))));
   }
 }
 class Dashboard extends StatefulWidget {
@@ -607,7 +641,9 @@ class _CashPageState extends State<CashPage> {
     final now=DateTime.now(),start=DateTime(now.year,now.month,now.day),end=start.add(const Duration(days:1));
     final from=start.toIso8601String(),to=end.toIso8601String();
     Future<double> total(String where,List<Object?> args) async {final r=await db.rawQuery('SELECT COALESCE(SUM(amount),0) AS v FROM cash WHERE '+where,args);return ((r.first['v'] as num?)??0).toDouble();}
-    final opening=await total('created<?',[from]);
+    final openingSetting=await db.query('settings',where:'key=?',whereArgs:['cash_opening_balance'],limit:1);
+    final baseOpening=openingSetting.isEmpty?0.0:((parseNum('${openingSetting.first['value']}'))??0.0);
+    final opening=baseOpening+await total("created<? AND type='دریافت'",[from])-await total("created<? AND type='برداشت'",[from]);
     final received=await total("type='دریافت' AND created>=? AND created<?",[from,to]);
     final withdrawn=await total("type='برداشت' AND created>=? AND created<?",[from,to]);
     final expected=opening+received-withdrawn;
@@ -623,10 +659,12 @@ class _CashPageState extends State<CashPage> {
   Future<Map<String,double>> summary() async {
     final db=await ShopDb.instance.database;
     final r=await db.rawQuery("SELECT COALESCE(SUM(CASE WHEN type='دریافت' THEN amount ELSE 0 END),0) AS incoming, COALESCE(SUM(CASE WHEN type='برداشت' THEN amount ELSE 0 END),0) AS outgoing FROM cash");
+    final setting=await db.query('settings',where:'key=?',whereArgs:['cash_opening_balance'],limit:1);
+    final opening=setting.isEmpty?0.0:(parseNum('${setting.first['value']}')??0.0);
     final row=r.first;
     final incoming=((row['incoming'] as num?)??0).toDouble();
     final outgoing=((row['outgoing'] as num?)??0).toDouble();
-    return {'incoming':incoming,'outgoing':outgoing,'balance':incoming-outgoing};
+    return {'opening':opening,'incoming':incoming,'outgoing':outgoing,'balance':opening+incoming-outgoing};
   }
   @override Widget build(BuildContext context)=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:add,icon:const Icon(Icons.add),label:const Text('ثبت صندوق')),body:FutureBuilder<List<Map<String,Object?>>>(future:ShopDb.instance.rows('cash',order:'id DESC'),builder:(c,s){
     if(!s.hasData)return const Center(child:CircularProgressIndicator());
@@ -1205,8 +1243,10 @@ class _BusinessReportsPageState extends State<BusinessReportsPage>{
 class SettingsPage extends StatefulWidget {const SettingsPage({super.key});@override State<SettingsPage> createState()=>_SettingsPageState();}
 class _SettingsPageState extends State<SettingsPage> {
   final seer=TextEditingController();
+  final openingCash=TextEditingController();
   bool backupBusy=false;
-  @override void initState(){super.initState();ShopDb.instance.database.then((db)=>db.query('settings',where:'key=?',whereArgs:['seer_grams']).then((r){if(r.isNotEmpty&&mounted)seer.text='${r.first['value']}';}));}
+  @override void initState(){super.initState();ShopDb.instance.database.then((db)async{final r=await db.query('settings',where:'key=?',whereArgs:['seer_grams']);final c=await db.query('settings',where:'key=?',whereArgs:['cash_opening_balance']);if(mounted){if(r.isNotEmpty)seer.text='${r.first['value']}';openingCash.text=c.isEmpty?'0':'${c.first['value']}';}});}
+  @override void dispose(){seer.dispose();openingCash.dispose();super.dispose();}
   Future<void> openReports() async {await Navigator.push(context,MaterialPageRoute(builder:(_)=>const BusinessReportsPage()));}
   Future<void> exportBackup() async {
     setState(()=>backupBusy=true);
@@ -1242,6 +1282,12 @@ class _SettingsPageState extends State<SettingsPage> {
   }
   @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
     const Text('تنظیمات دوکان',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:12),
+    Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      const Text('موجودی آغازین صندوق',style:TextStyle(fontWeight:FontWeight.bold)),
+      const SizedBox(height:5),const Text('پولی که پیش از شروع ثبت در برنامه داخل صندوق دوکان بوده است. این مبلغ با دریافت‌ها و برداشت‌ها جمع و تفریق می‌شود؛ دوباره به‌عنوان دریافت ثبت نمی‌شود.',style:TextStyle(fontSize:12,color:Colors.blueGrey)),
+      const SizedBox(height:8),TextField(controller:openingCash,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'موجودی آغازین صندوق',suffixText:'افغانی')),
+      const SizedBox(height:8),FilledButton(onPressed:()async{final value=parseNum(openingCash.text);if(value==null||value<0){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی آغازین باید صفر یا بیشتر باشد.')));return;}final db=await ShopDb.instance.database;await db.insert('settings',{'key':'cash_opening_balance','value':value.toString()},conflictAlgorithm:ConflictAlgorithm.replace);if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('موجودی آغازین صندوق ذخیره شد.')));},child:const Text('ذخیره موجودی آغازین'))
+    ]))),
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Text('واحدها',style:TextStyle(fontWeight:FontWeight.bold)),const SizedBox(height:8),
       TextField(controller:seer,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'هر سیر چند گرم است؟',suffixText:'گرم')),
